@@ -14,4 +14,5 @@ OpenGIS – Free open-source tools and tutorials for geospatial and remote sensi
 Esri Free Learning – Learn ArcGIS and geospatial data management with free resources
 🌐 Explore Esri Academy
 
+California Utilities (LADWP, PG&E, SCE, SDG&E, SMUD
 ----
