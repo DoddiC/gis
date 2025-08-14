@@ -16,3 +16,7 @@ Esri Free Learning – Learn ArcGIS and geospatial data management with free res
 
 California Utilities (LADWP, PG&E, SCE, SDG&E, SMUD
 ----
+
+BA worked 176 hours in July month. Requesting to kindly approve below timesheet ASAP.
+
+Request Number - 3992711
