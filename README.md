@@ -36,3 +36,5 @@ SELECT unique_sitepolygon_id, pm_id, created FROM shug.ept_sitepolygon_evw WHERE
 SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id, COUNT(*), STRING_AGG(unique_sitepolygon_id, ', ') as all_ids FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY 1 HAVING COUNT(*) > 1;
 
 SELECT * FROM shug.ept_sitepolygon_evw WHERE SUBSTRING(unique_sitepolygon_id,4,8) IN (SELECT SUBSTRING(unique_sitepolygon_id,4,8) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY SUBSTRING(unique_sitepolygon_id,4,8) HAVING COUNT(*)>1) ORDER BY SUBSTRING(unique_sitepolygon_id,4,8);
+
+SELECT COUNT(*) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%';
