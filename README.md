@@ -22,3 +22,5 @@ BA worked 176 hours in July month. Requesting to kindly approve below timesheet 
 Request Number - 3992711
 
 SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id, COUNT(*) as duplicates, STRING_AGG(unique_sitepolygon_id, ', ') as ids FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY 1 HAVING COUNT(*) > 1 ORDER BY MAX(ept_last_edited) DESC;
+
+SELECT unique_sitepolygon_id, COUNT(*) FROM shug.ept_sitepolygon_evw GROUP BY unique_sitepolygon_id HAVING COUNT(*) > 1;
