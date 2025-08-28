@@ -27,16 +27,12 @@ SELECT unique_sitepolygon_id, COUNT(*) FROM shug.ept_sitepolygon_evw GROUP BY un
 
 SELECT * FROM shug.ept_projects WHERE unique_project_id IN (SELECT unique_project_id FROM shug.ept_projects GROUP BY unique_project_id HAVING COUNT(*) > 1);
 
-SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id, COUNT(*), STRING_AGG(unique_sitepolygon_id, ', ') as all_ids FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY 1 HAVING COUNT(*) > 1;
-
-SELECT * FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id IN (SELECT unique_sitepolygon_id FROM shug.ept_sitepolygon_evw GROUP BY unique_sitepolygon_id HAVING COUNT(*) > 1) ORDER BY unique_sitepolygon_id;
-
-SELECT unique_sitepolygon_id, pm_id, created FROM shug.ept_sitepolygon_evw WHERE SPLIT_PART(unique_sitepolygon_id, '_', 2) IN (SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY SPLIT_PART(unique_sitepolygon_id, '_', 2) HAVING COUNT(*) > 1) ORDER BY SPLIT_PART(unique_sitepolygon_id, '_', 2), unique_sitepolygon_id;
-
-SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id, COUNT(*), STRING_AGG(unique_sitepolygon_id, ', ') as all_ids FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY 1 HAVING COUNT(*) > 1;
-
+---
+duplicates:
 SELECT * FROM shug.ept_sitepolygon_evw WHERE SUBSTRING(unique_sitepolygon_id,4,8) IN (SELECT SUBSTRING(unique_sitepolygon_id,4,8) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY SUBSTRING(unique_sitepolygon_id,4,8) HAVING COUNT(*)>1) ORDER BY SUBSTRING(unique_sitepolygon_id,4,8);
 
+confirm theres data:
 SELECT COUNT(*) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%';
 
+should return same valu as previous query:
 SELECT COUNT(DISTINCT SUBSTRING(unique_sitepolygon_id,4,8)) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%';
