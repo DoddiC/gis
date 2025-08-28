@@ -18,21 +18,3 @@ California Utilities (LADWP, PG&E, SCE, SDG&E, SMUD
 ----
 
 BA worked 176 hours in July month. Requesting to kindly approve below timesheet ASAP.
-
-Request Number - 3992711
-
-SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id, COUNT(*) as duplicates, STRING_AGG(unique_sitepolygon_id, ', ') as ids FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY 1 HAVING COUNT(*) > 1 ORDER BY MAX(ept_last_edited) DESC;
-
-SELECT unique_sitepolygon_id, COUNT(*) FROM shug.ept_sitepolygon_evw GROUP BY unique_sitepolygon_id HAVING COUNT(*) > 1;
-
-SELECT * FROM shug.ept_projects WHERE unique_project_id IN (SELECT unique_project_id FROM shug.ept_projects GROUP BY unique_project_id HAVING COUNT(*) > 1);
-
----
-duplicates:
-SELECT * FROM shug.ept_sitepolygon_evw WHERE SUBSTRING(unique_sitepolygon_id,4,8) IN (SELECT SUBSTRING(unique_sitepolygon_id,4,8) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%' GROUP BY SUBSTRING(unique_sitepolygon_id,4,8) HAVING COUNT(*)>1) ORDER BY SUBSTRING(unique_sitepolygon_id,4,8);
-
-confirm theres data:
-SELECT COUNT(*) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%';
-
-should return same valu as previous query:
-SELECT COUNT(DISTINCT SUBSTRING(unique_sitepolygon_id,4,8)) FROM shug.ept_sitepolygon_evw WHERE unique_sitepolygon_id LIKE 'SP_%';
