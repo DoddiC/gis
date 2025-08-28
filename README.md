@@ -47,3 +47,31 @@ WHERE unique_sitepolygon_id LIKE 'SP_%'
 GROUP BY SPLIT_PART(unique_sitepolygon_id, '_', 2)
 HAVING COUNT(*) > 1
 ORDER BY duplicate_count DESC, project_id;
+
+-- Option 1: Show duplicates with count for clarity  
+SELECT 
+    SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id,
+    COUNT(*) as duplicate_count
+FROM shug.ept_sitepolygon_evw 
+WHERE unique_sitepolygon_id LIKE 'SP_%'
+GROUP BY 1
+HAVING COUNT(*) > 1
+ORDER BY 2 DESC, 1;
+
+-- Option 2: Show individual duplicate records only
+WITH duplicates AS (
+    SELECT SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id
+    FROM shug.ept_sitepolygon_evw 
+    WHERE unique_sitepolygon_id LIKE 'SP_%'
+    GROUP BY SPLIT_PART(unique_sitepolygon_id, '_', 2)
+    HAVING COUNT(*) > 1
+)
+SELECT 
+    unique_sitepolygon_id,
+    SPLIT_PART(unique_sitepolygon_id, '_', 2) as project_id,
+    SPLIT_PART(unique_sitepolygon_id, '_', 3) as sequence_number,
+    pm_id,
+    created
+FROM shug.ept_sitepolygon_evw e
+JOIN duplicates d ON SPLIT_PART(e.unique_sitepolygon_id, '_', 2) = d.project_id
+ORDER BY project_id, sequence_number;
