@@ -24,9 +24,12 @@ My Jupyter notebook that bangs up datasets and updates a GIS service with the re
 Python is more like a CLI to a bunch of different programs, through the use of internal scripting for some programs and API or library usage for others.
 
 So, if you're scripting a bunch of stuff together, I think of it as "kind of" programming, but if you're building out the underlying tools, libraries, frameworks, etc. I think "developer".
-
-
-
+----
+check QA and production server with all the connections
+Copy all scripts from server 14 to server 16 as part of the server migration
+Set up VIT (backup) scripts on the new servers - currently there's a survey backup script running on production server 14 that needs to be migrated
+Fill out a format/request form that will be provided to raise a new job request for the VIT scripts through Adnan
+Coordinate with Rakesh on the script migration tasks
 
 
 
