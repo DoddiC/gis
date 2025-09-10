@@ -32,4 +32,35 @@ Fill out a format/request form that will be provided to raise a new job request 
 Coordinate with Rakesh on the script migration tasks
 
 
+**Subject: Seeking Carpool Partners - Manteca to Oakland Office**
+
+Hi PG&E Team,
+
+Hope everyone's having a great day! I'm Destiny from the Vegetation Management side, reaching out to our community to see if anyone might be interested in carpooling from the Manteca area to our Oakland office.
+
+I've been making the commute solo and thought it would be beneficial to connect with fellow colleagues who might be traveling the same route. Carpooling offers several advantages:
+
+• **Cost savings** on gas and bridge tolls
+• **Reduced environmental impact** - supporting PG&E's sustainability goals
+• **HOV lane access** for faster commute times
+• **Networking opportunity** with fellow team members
+• **Shared driving responsibility** to reduce fatigue
+
+**What I'm looking for:**
+- Reliable commute partners from Manteca or nearby areas (Stockton, Modesto, Tracy welcome too)
+- Flexible schedule coordination for regular office days
+- Professional, punctual individuals who value a positive commute experience
+
+If this sounds appealing to you, or if you know someone who might be interested, please reach out! We can discuss schedules, cost-sharing arrangements, and logistics that work for everyone involved.
+
+Looking forward to connecting with fellow commuters and making our daily journey more efficient and enjoyable.
+
+Best regards,
+[Your Name]
+[Your Department/Title]
+[Contact Information]
+
+*Feel free to share this message with anyone in your network who might benefit from a carpool arrangement.*
+
+
 
