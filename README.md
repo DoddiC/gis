@@ -31,7 +31,8 @@ Set up VIT (backup) scripts on the new servers - currently there's a survey back
 Fill out a format/request form that will be provided to raise a new job request for the VIT scripts through Adnan
 Coordinate with Rakesh on the script migration tasks
 
-
+----
+1.
 **Subject: Seeking Carpool Partners - Manteca to Oakland Office**
 
 Hi PG&E Team,
@@ -62,5 +63,6 @@ Best regards,
 
 *Feel free to share this message with anyone in your network who might benefit from a carpool arrangement.*
 
+2. One VM Management System
 
 
