@@ -1,3 +1,4 @@
+https://drive.google.com/drive/folders/1xY7l8pMslE8rAsUDmT6MrYbaz1FJm7xg?usp=sharing
 ----OTHER---
 Why GIS is crucial:
 It helps understand risks spatially (like floods, droughts, or infrastructure exposure).
