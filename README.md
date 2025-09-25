@@ -1,3 +1,4 @@
+----OTHER---
 Why GIS is crucial:
 It helps understand risks spatially (like floods, droughts, or infrastructure exposure).
 It enables smarter decisions about development, disaster response, and climate adaptation.
@@ -24,14 +25,13 @@ My Jupyter notebook that bangs up datasets and updates a GIS service with the re
 Python is more like a CLI to a bunch of different programs, through the use of internal scripting for some programs and API or library usage for others.
 
 So, if you're scripting a bunch of stuff together, I think of it as "kind of" programming, but if you're building out the underlying tools, libraries, frameworks, etc. I think "developer".
-----
+----EVM---
 check QA and production server with all the connections
 Copy all scripts from server 14 to server 16 as part of the server migration
 Set up VIT (backup) scripts on the new servers - currently there's a survey backup script running on production server 14 that needs to be migrated
 Fill out a format/request form that will be provided to raise a new job request for the VIT scripts through Adnan
 Coordinate with Rakesh on the script migration tasks
-
-----
+----DIGITAL CATAYLST---
 sumo logic:
 https://www.google.com/search?q=logs+%22UDP%22+to+Sumo+Logic&sca_esv=e2c71ab81425b6e6&rlz=1C5LTRN_enUS1157US1158&sxsrf=AE3TifMsaBNyEhPDcNnW85CtgnSyCgtmVQ%3A1758775545445&ei=-cjUaPP4Go3DkPIP_rXz0Q4&ved=0ahUKEwiz2YC9jfOPAxWNIUQIHf7aPOoQ4dUDCBA&uact=5&oq=logs+%22UDP%22+to+Sumo+Logic&gs_lp=Egxnd3Mtd2l6LXNlcnAiGGxvZ3MgIlVEUCIgdG8gU3VtbyBMb2dpYzIFEAAY7wUyCBAAGKIEGIkFMgUQABjvBTIFEAAY7wVI4xVQxgRYtxNwAXgBkAEAmAGHAaABkQWqAQMxLjW4AQPIAQD4AQGYAgegArAFwgIKEAAYsAMY1gQYR8ICCBAhGKABGMMEmAMAiAYBkAYCkgcDMi41oAfmE7IHAzEuNbgHrQXCBwUwLjUuMsgHEQ&sclient=gws-wiz-serp
 https://github.com/SumoLogic/sumologic-lambda-extensions
@@ -215,3 +215,64 @@ Enabling a Threat Hunting Capability in AWS // 1
  • Increased analyst productivity: Sumo Logic pulls log files from a variety of AWS services, including AWS CloudTrail and Amazon VPC Flow Logs, and centralized metrics from Amazon CloudWatch to provide continuous machine learning-based intelligence. It analyzes logs for potential threats and indicators of compromise (IoCs) through a Threat Intelligence database that can be correlated with log data through queries. These activities can help increase analyst productivity by creating more signal and less noise.
 • Strong integrations with AWS: Sumo Logic offers more than 150 applications and integrations that make it easy to aggregate data across your stack and down your pipeline. These tools include out-of-the-box pre-built analytics and dashboards for AWS services. One integration in particular that supports threat hunting for AWS customers is Sumo Logic’s Global Intelligent Service (GIS) for Amazon GuardDuty. It provides customers with a baseline of what’s normal, what’s expected, and ways to dig deeper into the long tail of rare security events.
 Log analysis tools, like Splunk and Sumo Logic, have been adding machine learning options for extracting patterns and anomalies from historical data to go alongside metrics and visualizations of real-time service health with alerts when anomalies are detected, and automation options. Micro Focus’ Operations Bridge adds anomaly detection and clustering of related alerts to IT monitoring, and Sematext Cloud does anomaly detection with machine learning from performance metrics and logs
+
+lambda:
+What is AWS Lambda? 2023
+AWS Lambda is a serverless computing service provided by AWS that allows developers to run code without provisioning or managing servers. ones (AZs). There are 4 types of load balancers available:
+• Application Load Balancer: operates at the request level (layer 7), routing traffic to targets (EC2 instances, containers, IP addresses, and Lambda functions) based on the content of the request.
+Lambda lets you run code without provis​‐ ioning or managing servers. You pay only for the compute time you consume.
+Lambda
+If EC2 is a complete computer in the cloud, Lambda is a code runner in the cloud. With EC2 you get an operating system, a file system, access to the server’s hardware, etc. But with Lambda, you just upload some code and Amazon runs it for you. The beauty of Lambda is that it’s the simplest way to run code in the cloud. It abstracts away everything except for a function interface, which you get to fill in with the code you want to run.
+We think Lambda is great—definitely one of the good parts of AWS—as long as you treat it as the simple code runner that it is. A problem we often see is that people sometimes mistake Lambda for a general-purpose application host. Unlike EC2, it is very hard to run a
+ 20
+sophisticated piece of software on Lambda without making some very drastic changes to your application and accepting some significant new limitations from the platform.
+Lambda is most suitable for small snippets of code that rarely change. We like to think of Lambda functions as part of the infrastructure rather than part of the application. In fact, one of our favorite uses for Lambda is to treat it as a plugin system for other AWS services.
+For example, S3 doesn’t come with an API to resize an image after uploading it to a bucket, but with Lambda, you can add that capability to S3. Application load balancers come with an API to respond with a fixed response for a given route, but they can’t respond with an image. Lambda lets you make your load balancer do that. CloudFront can’t rewrite a request URL based on request cookies (which is useful for A/B testing), but with Lambda, you can make CloudFront do that with just a little bit of code. CloudWatch doesn’t support regex- based alerting on application logs, but you can add that feature with a few lines of Lambda code. Kinesis doesn’t come with an API to filter records and write them to DynamoDB, but this is very easy to do with Lambda. CloudFormation’s native modeling language has many limitations and, for example, it can’t create and validate a
+ 21
+
+new TLS certificate from the AWS Certificate Manager. Using Lambda, you can extend the CloudFormation language to add (almost) any capability you want. And so on—you get the idea. Lambda is a great way to extend existing AWS features.
+Treating Lambda as a general-purpose host for your applications is risky. It might look compelling at first—no servers to manage, no operating system to worry about, and no costs when unused—but Lambda’s limitations are insidious hidden risks that typically reveal themselves once your application evolves into something bigger. Then, things start coming at you one after the other, and before you know it, you are spending most of your time trying to figure out convoluted solutions to Lambda’s numerous limitations.
+Some limitations will likely improve or go away over time. For example, a very annoying issue is the cold start when a function is invoked after a period of inactivity or when Lambda decides to start running your function on new backend workers. Another problem is the limit of 250 MB for your code bundle, including all your dependencies. Depending on the programming language you’re using, you can find yourself quickly exhausting this limit. And the network bandwidth from Lambda functions seems to be very limited and unpredictable. These can all be
+ 22
+
+problematic, depending on your use case, but we’re quite confident that these issues will improve over time.
+But then there are other limitations that are inherent to the way Lambda works and which are less likely to go away. For example, you have to assume that every Lambda invocation is stateless. If you need to access some state, you have to use something like S3 or DynamoDB. While this works fine for a demo, it can quickly become prohibitively expensive in the real world. For example, handling a WebSocket connection on Lambda will likely require a read and write to DynamoDB for every exchanged packet, which can quickly result in a spectacularly large DynamoDB bill, even with modest activity.
+Our rule of thumb is simple: If you have a small piece of code that will rarely need to be changed and that needs to run in response to something that happens in your AWS account, then Lambda is a very good default choice. You can even define the code in your CloudFormation template so that this piece of custom functionality truly becomes part of your infrastructure. For everything else, we advise a lot of caution.
+That said, we are very optimistic about the future of serverless computing. The idea of abstracting away
+ 23
+
+everything in the stack beneath your code is a phenomenal advance in software development. However, when building software in the present, we have to assess the options available to us today, and while Lambda has its place, it is certainly not a substitute for EC2.
+erverless translates to While replatform and refactor calls
+“without servers,” though
+there are servers. But these servers are going to be managed
+by cloud service providers. Companies that aim to modernize their applications should simplify
+the application architectures
+and reimagine the workload implementations on serverless cloud services.
+Serverless is one of the highest ROI- generating technologies among the many options available to modernize your application portfolio.
+With serverless, developers focus more on building the product/ application than scaling the infrastructure, OS patching, maintenance, etc. Here, developers write the code and create functions that are executed with the suitable infrastructure by cloud providers. For modernizing applications with serverless, you need to consider rewriting and revising strategies as essential migration strategies.
+Out of 7 Rs of AWS migration strategies, replatform, refactor, rewrite, and revise are crucial for modernizing applications using serverless.
+for updating certain application parts with new code and updating some infrastructure components, a rewrite and revise approach requires writing completely new architecture and revisiting workload requirements.
+We at Simform practice combining rewrite + revise strategies to get the best results from serverless architecture and cloud services.
+Rewriting applications from scratch reap most benefits from the
+cloud. It would reduce the burden of managing old code in a new environment, reduce configuration efforts, and reduce the overall monthly cloud costs.
+What’s more, serverless technology is a union of two concepts: Backend as a Service and Function as a Service.
+Function as a service:
+ This concept runs on the idea of running backend code without managing your own servers; for example, AWS Lambda is an AWS’s function as a service product.
+With AWS Lambda, you can run code without provisioning or managing infrastructure. In addition, it can handle code execution
+requests, from dozens of events per day to hundreds of thousands per second.
+This serverless, event-driven compute service lets you run code for any type of application and lets you trigger Lambda over 200 AWS services and software as a service.
+Use cases of AWS Lambda
+● Processes data as you need and scales automatically as per the
+requirements.
+● Creates interactive mobile and web app experiences
+● Establishes communication between decoupled services by serving peak demands by appropriate utilization of resources
+● AWS Lambda handles such events in web or mobile apps that produce events. For example, files saved on the S3 bucket must be automatically processed, like creating a thumbnail version. Other examples include notifying SNS or sending out an email whenever new books are added to the library. The AWS Lambda function will be triggered to notify SNS whenever the new entries are added to the database.
+AWS Lambda
+AWS Lambda lets you run code without provisioning or managing servers. You pay only for the compute time you consume—there is no charge when your code is not running. With Lambda, you can run code for virtually any type of application or backend service—all with zero administration. Just upload your code, and Lambda takes care of everything required to run and scale your code with high availability. You can set up your code to automatically trigger from other AWS services, or you can call it directly from any web or mobile app.
+ex. back to SQS and View/Delete MessagesStart poling messages you can see the message from SNS Similar to this create Lambda function, get ARN value from Lambda, and add to SQS for further triggers Queue Actionsconfigure Trigger for Lambda Function
+Use data transformation to convert your data into formats that are suitable for analysis or storage. You can use AWS Lambda functions to transform your data before it is delivered to destinations. You can also use built-in converters to convert your data into Apache Parquet or Apache ORC formats for efficient storage on Amazon S3
+
+Lambda does require you've got some vague notion of what lambda notation is. But "AWS App Scripts" suggests it's for mobile "apps", but it is not specific to those. And it suggests it's only for scripts, but you can run an entire application on Lambda just fine.
+cases I’ve highlighted are among countless thousands that will work best using the server model.
+When should you choose Lambda? If your task is relatively small, infrequent, and independent of other processes, then Lambda is a no- brainer. On the other hand, if it’s one piece in a larger, deeply intercon- nected mega-process driven by a very large code base that would be hard to refactor, you should think carefully before jumping on the Lambda bandwagon. Everything that falls somewhere in between will require you to make a judgment call, weighing all the factors as you find the right balance.
+  
