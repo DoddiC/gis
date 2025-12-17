@@ -1,8 +1,8 @@
-------------------------------------**TRANSFER**--------------------------------------------------
+------------------------------------T--------------------------------------------------
 https://drive.google.com/drive/folders/1l3x3fzS0YbLS_MySnZleQCv6edqXsCHG?usp=sharing
 https://www.skills.google/
 https://github.com/rjury-sumo/sumologic-query-examples
---------------------------------------**LEARN**----------------------------------------------------
+--------------------------------------L----------------------------------------------------
 GISCI Webinars – Free educational webinars and resources to help you with professional development in GIS and project management
 🌐 Explore GISCI
 NASA Earth Science Data Management Course – Free course on Earth science, remote sensing, and space data management
@@ -16,22 +16,7 @@ Esri Free Learning – Learn ArcGIS and geospatial data management with free res
 
 Tech Down" Meaning: User submits via app, submission fails, and they resort to paper documentation
 
-----------------------------------------------------------------------------------------------------
-Cool prompts
-
-Transform the given image into the style of Studio Ghibli, emulating the techniques and aesthetics as if you were a dedicated fan who has trained for years to master this art form. # Steps 
-1. Analyze the Image: Examine the original image to understand its composition, color palette, and key elements. 2. Study Studio Ghibli Style: Familiarize yourself with the distinctive features of Studio Ghibli's art style, including: - Soft, vibrant color palettes - Detailed backgrounds with a focus on nature - Expressive character designs with large, emotive eyes - Use of light and shadow to create depth 3. Sketch the Transformation: Create a preliminary sketch that incorporates the Ghibli style elements into the original image. 4. Apply Color and Texture: Use soft, vibrant colors typical of Studio Ghibli films. Pay attention to textures that mimic traditional animation techniques. 5. Refine Details: Add intricate details to the background and characters, ensuring they align with the Ghibli aesthetic. 6. Final Adjustments: Make any necessary adjustments to lighting, contrast, and saturation to achieve a cohesive look. 
-# Output Format Provide a digital image file that reflects the transformation of the original image into the Studio Ghibli style. The file should be in a common format such as JPEG or PNG. 
-# Notes - Pay special attention to the emotional tone of the image, ensuring it aligns with the whimsical and heartfelt nature of Studio Ghibli films. - Consider the use of traditional animation techniques, such as hand-drawn lines and watercolor effects, to enhance authenticity. - Ensure that the transformed image maintains the essence of the original while fully embracing the Ghibli style. 
-Lego: Please turn me into a 3d lego character. Keep the photo the exact same, just change the art style 
-Ken doll: Please turn me into a 3d Ken Doll from Barbie inside the plastic box. 
-Playmobil: Please turn me into a Playmobil figurine. Keep the photo the exact same, just change the art style 
-Demon Slayer: Please turn me into a character from the anime Demon Slayer. Keep the photo the exact same but give me a sword, just change the art style 
-One Piece: Please turn me into a character from the anime One Piece. Keep the photo exactly the same, just change the art style. Include "Austin Armstrong" in the One Piece font 
-JoJo's Bizarre Adventure: Please turn me into a character from JoJo's bizarre adventure. Keep the photo exactly the same, just change the art style. Include "Austin Armstrong" in the JoJo's Bizarre Adventure font 
-Muppet: Please turn me into a realistic Muppet character. Keep the photo exactly the same, just change the art style 
-“I’m stuck on [insert challenge]. I’m the founder of a [describe your business]. I need help thinking clearly—not more options. Ask me 3 questions that will help me simplify this and make a confident call.”
-
+---------------------------------------P-------------------------------------------------------------
 Construction Site Phasing Planner
 CONSTRUCTION SITE PHASING PLANNER Analyse this PDF site plan and provide a comprehensive phasing strategy including:
 PHASE BREAKDOWN:
