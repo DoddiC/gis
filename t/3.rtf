@@ -88,3 +88,50 @@ _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 Shows **how many unique** equipment IDs and SAP IDs had errors per day, which is cleaner than listing them all.
 
 **Which approach fits your use case best?**
+
+Great brainstorm! Here's a query for a time-series chart showing failure counts over 30-minute intervals:
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "message.event", "message.state" as event, state nodrop
+| where !isBlank(event)
+| where state = "error" or state = "failed" or state = "failure"
+| concat(event, " - ", state) as event_failure
+| timeslice 30m
+| count by _timeslice, event_failure
+| sort by _timeslice asc
+```
+
+**What this does:**
+- **Y-axis**: Count of failures
+- **X-axis**: Time in 30-minute buckets
+- **Series**: Different lines for each event-failure combination (e.g., "error fetching from geomart - error", "Ingest Structures - failed")
+
+## Alternative: Focus on Specific Events Only
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "message.event", "message.state" as event, state nodrop
+| where event = "error fetching from geomart" or event = "Ingest Structures"
+| where state = "error" or state = "failed" or state = "failure"
+| concat(event, " failures") as failure_type
+| timeslice 30m
+| count by _timeslice, failure_type
+| sort by _timeslice asc
+```
+
+## With Equipment/SAP ID Breakdown
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "message.event", "message.state", "message.equipmentId", "message.sapDataId" as event, state, equipmentId, sapDataId nodrop
+| where event = "error fetching from geomart" or event = "Ingest Structures"
+| where state = "error" or state = "failed" or state = "failure"
+| timeslice 30m
+| count by _timeslice, event
+| sort by _timeslice asc
+```
+
+**Visualization tip:** In Sumo Logic, set this to a **Line Chart** or **Area Chart** to see trends over time. Each event type will be a different colored line showing failure spikes.
+
+Would you like to add any specific filters or focus on particular time ranges?
