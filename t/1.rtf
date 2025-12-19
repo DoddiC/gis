@@ -1339,3 +1339,46 @@ for (const batch of batches) \{\
 
 \f2\b0\fs24 \cf2 The CMDB Lambda is a nightly ETL (Extract-Transform-Load) service that synchronizes planning data from a legacy MSSQL database to a mobile-optimized Couchbase cluster. It runs at midnight Pacific via EventBridge, queries only records modified since the last successful sync (using an AWS Parameter Store checkpoint), deduplicates thousands of obsolete amendments down to the latest version of each work order, and uploads batches of 500 documents to Couchbase. The system is designed for failure resilience: if any step fails, the checkpoint timestamp remains unchanged, causing the next run to retry the same data. This idempotent behavior guarantees no data loss, though failures delay updates by 24 hours. Field workers depend on this Lambda to see accurate work assignments each morning in the Engage mobile app.\
 }
+
+Ah, I see! You want to see the IDs that caused the errors in a clean format. Here's the solution:
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| parse "\"event\":\"*\"" as event nodrop
+| parse "\"state\":\"*\"" as state nodrop
+| where event != ""
+| parse regex "\"message\":\{[^\}]*\"sapDataId\":\"(?<sapDataId>[^\"]+)\"" nodrop
+| parse regex "\"message\":\{[^\}]*\"equipmentId\":\"(?<equipmentId>[^\"]+)\"" nodrop
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| where (event = "error fetching from geomart") or (event = "Ingest Structures")
+| fields Date, event, state, sapDataId, equipmentId
+| sort by Date asc, event
+```
+
+This gives you a **flat table** showing:
+- Date
+- Event type
+- State
+- sapDataId (when applicable)
+- equipmentId (when applicable)
+
+**Alternatively**, if you want **one row per date/event with all IDs listed**, use this:
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| parse "\"event\":\"*\"" as event nodrop
+| parse "\"state\":\"*\"" as state nodrop
+| where event != ""
+| parse regex "\"message\":\{[^\}]*\"sapDataId\":\"(?<sapDataId>[^\"]+)\"" nodrop
+| parse regex "\"message\":\{[^\}]*\"equipmentId\":\"(?<equipmentId>[^\"]+)\"" nodrop
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| where (event = "error fetching from geomart") or (event = "Ingest Structures")
+| count by Date, event, state, sapDataId, equipmentId
+| sort by Date asc, event, count desc
+```
+
+This shows count of errors **grouped by** the specific IDs, so you can see which equipment/SAP IDs are causing the most problems.
+
+Which format do you prefer?
