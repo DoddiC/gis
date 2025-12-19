@@ -264,17 +264,5 @@ Act as a professional and experienced prompt engineer for ChatGPT. The professio
 
 Reverse engineer our conversation and write the single prompt that would have produced this final response in one go.
 
-_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
-| parse "\"event\":\"*\"" as event
-| parse "\"state\":\"*\"" as state
-| where event != ""
-| parse "\"sapDataId\":\"*\"" as sapDataId nodrop
-| parse "\"equipmentId\":\"*\"" as equipmentId nodrop
-| if (event = "error fetching from geomart", sapDataId, "") as sapDataId_filtered
-| if (event = "error fetching from geomart", equipmentId, "") as equipmentId_geo
-| if (event = "Ingest Structures", equipmentId, "") as equipmentId_ingest
-| timeslice 1d
-| formatDate(_timeslice, "MM/dd") as Date
-| count by event, state, Date
 | transpose row Date, event column state
 | sort by Date asc
