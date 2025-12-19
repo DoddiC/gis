@@ -1365,6 +1365,8 @@ This gives you a **flat table** showing:
 
 **Alternatively**, if you want **one row per date/event with all IDs listed**, use this:
 
+Ah, I see what you want now! You want to keep the **original transposed format** (Date + Event as rows, States as columns) BUT also show which IDs caused those errors. Here's the solution:
+
 ```sumo
 _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 | parse "\"event\":\"*\"" as event nodrop
@@ -1374,11 +1376,43 @@ _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 | parse regex "\"message\":\{[^\}]*\"equipmentId\":\"(?<equipmentId>[^\"]+)\"" nodrop
 | timeslice 1d
 | formatDate(_timeslice, "MM/dd") as Date
-| where (event = "error fetching from geomart") or (event = "Ingest Structures")
-| count by Date, event, state, sapDataId, equipmentId
-| sort by Date asc, event, count desc
+| count by event, state, Date, sapDataId, equipmentId
+| where (event = "error fetching from geomart" and isNotEmpty(sapDataId)) 
+   or (event = "error fetching from geomart" and isNotEmpty(equipmentId))
+   or (event = "Ingest Structures" and isNotEmpty(equipmentId))
+   or (event != "error fetching from geomart" and event != "Ingest Structures")
+| sort by Date asc, event
 ```
 
-This shows count of errors **grouped by** the specific IDs, so you can see which equipment/SAP IDs are causing the most problems.
+**Wait - this won't transpose cleanly with IDs.**
 
-Which format do you prefer?
+Your target solution is likely **two separate views**:
+
+**View 1: Original Transposed Summary**
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| parse "\"event\":\"*\"" as event nodrop
+| parse "\"state\":\"*\"" as state nodrop
+| where event != ""
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| count by event, state, Date
+| transpose row Date, event column state
+| sort by Date asc
+```
+
+**View 2: Detail Table for Specific Events with IDs**
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| parse "\"event\":\"*\"" as event nodrop
+| parse "\"state\":\"*\"" as state nodrop
+| where event = "error fetching from geomart" or event = "Ingest Structures"
+| parse regex "\"sapDataId\":\"(?<sapDataId>[^\"]+)\"" nodrop
+| parse regex "\"equipmentId\":\"(?<equipmentId>[^\"]+)\"" nodrop
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| count by Date, event, state, equipmentId, sapDataId
+| sort by Date asc, count desc
+```
+
+Is this what you're looking for - the transposed view for overview, plus a detailed table showing which specific IDs had errors?
