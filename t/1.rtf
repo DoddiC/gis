@@ -1388,31 +1388,41 @@ _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 
 Your target solution is likely **two separate views**:
 
-**View 1: Original Transposed Summary**
+Let me drill down harder on why this isn't working:
+
+**Issue 1: The regex pattern might not be matching the actual JSON structure**
+
+Let me try simpler wildcard parsing first:
+
 ```sumo
 _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 | parse "\"event\":\"*\"" as event nodrop
 | parse "\"state\":\"*\"" as state nodrop
 | where event != ""
+| parse "\"sapDataId\":\"*\"" as sapDataId nodrop
+| parse "\"equipmentId\":\"*\"" as equipmentId nodrop
 | timeslice 1d
 | formatDate(_timeslice, "MM/dd") as Date
-| count by event, state, Date
-| transpose row Date, event column state
-| sort by Date asc
+| count by Date, event, state
+| sort by Date asc, _count desc
 ```
 
-**View 2: Detail Table for Specific Events with IDs**
+**Issue 2: Looking at your original query image - you used `json field=_raw`**
+
+The fields are probably nested. Let's go back to the JSON parsing approach:
+
 ```sumo
 _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
-| parse "\"event\":\"*\"" as event nodrop
-| parse "\"state\":\"*\"" as state nodrop
-| where event = "error fetching from geomart" or event = "Ingest Structures"
-| parse regex "\"sapDataId\":\"(?<sapDataId>[^\"]+)\"" nodrop
-| parse regex "\"equipmentId\":\"(?<equipmentId>[^\"]+)\"" nodrop
+| json field=_raw "timestamp", "message.event", "message.state", "message.sapDataId", "message.equipmentId" as timestamp, event, state, sapDataId, equipmentId nodrop
+| where !isBlank(event)
 | timeslice 1d
 | formatDate(_timeslice, "MM/dd") as Date
-| count by Date, event, state, equipmentId, sapDataId
-| sort by Date asc, count desc
+| count by Date, event, state, sapDataId, equipmentId
+| sort by Date asc, _count desc
 ```
 
-Is this what you're looking for - the transposed view for overview, plus a detailed table showing which specific IDs had errors?
+**The key insight from your original query:**
+- You used `json field=_raw "message.event"` - meaning these fields are nested under `"message"`
+- `sapDataId` and `equipmentId` are likely `message.sapDataId` and `message.equipmentId`
+
+Try this second query - it matches your original JSON parsing pattern!
