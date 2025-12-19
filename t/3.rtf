@@ -21,3 +21,70 @@ _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 | count by Date, event_with_ids, state
 | transpose row Date, event_with_ids column state
 | sort by Date asc
+
+Ah, I see! You only have one state column showing up, and the IDs are creating too many rows. Here are some **creative alternatives** with limited data:
+
+## Option 1: Aggregate IDs into Lists
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "timestamp", "message.event", "message.state", "message.sapDataId", "message.equipmentId" as timestamp, event, state, sapDataId, equipmentId nodrop
+| where !isBlank(event)
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| count by Date, event, state, sapDataId, equipmentId
+| sum(_count) as total_count by Date, event, state
+| sort by Date asc, total_count desc
+```
+
+## Option 2: Show Top Offenders Only
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "timestamp", "message.event", "message.state", "message.sapDataId", "message.equipmentId" as timestamp, event, state, sapDataId, equipmentId nodrop
+| where !isBlank(event)
+| where event = "error fetching from geomart" or event = "Ingest Structures"
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| count by Date, event, equipmentId, sapDataId
+| sort by _count desc
+| limit 20
+```
+Shows the top 20 equipment/SAP IDs causing the most errors.
+
+## Option 3: Two Queries Side-by-Side
+
+**Summary View:**
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "message.event", "message.state" as event, state nodrop
+| where !isBlank(event)
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| count by Date, event
+| sort by Date asc
+```
+
+**Detail View (separate panel):**
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "message.event", "message.equipmentId", "message.sapDataId" as event, equipmentId, sapDataId nodrop
+| where event = "error fetching from geomart" or event = "Ingest Structures"
+| where !isBlank(equipmentId) or !isBlank(sapDataId)
+| fields event, equipmentId, sapDataId, _messageTime
+| sort by _messageTime desc
+| limit 50
+```
+
+## Option 4: Count Unique IDs Per Event
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
+| json field=_raw "message.event", "message.state", "message.sapDataId", "message.equipmentId" as event, state, sapDataId, equipmentId nodrop
+| where !isBlank(event)
+| timeslice 1d
+| formatDate(_timeslice, "MM/dd") as Date
+| count_distinct(equipmentId) as unique_equipment, count_distinct(sapDataId) as unique_sap by Date, event
+| sort by Date asc
+```
+
+Shows **how many unique** equipment IDs and SAP IDs had errors per day, which is cleaner than listing them all.
+
+**Which approach fits your use case best?**
