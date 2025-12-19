@@ -268,11 +268,13 @@ _sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main "no response"
 | parse "\"event\":\"*\"" as event
 | parse "\"state\":\"*\"" as state
 | where event != ""
-| if (event = "error fetching from geomart", parse field=_raw "\"sapDataId\":\"*\"" as sapDataId, "")
-| if (event = "error fetching from geomart", parse field=_raw "\"equipmentId\":\"*\"" as equipmentId_geo, "")
-| if (event = "Ingest Structures", parse field=_raw "\"equipmentId\":\"*\"" as equipmentId_ingest, "")
+| parse "\"sapDataId\":\"*\"" as sapDataId nodrop
+| parse "\"equipmentId\":\"*\"" as equipmentId nodrop
+| if (event = "error fetching from geomart", sapDataId, "") as sapDataId_filtered
+| if (event = "error fetching from geomart", equipmentId, "") as equipmentId_geo
+| if (event = "Ingest Structures", equipmentId, "") as equipmentId_ingest
 | timeslice 1d
 | formatDate(_timeslice, "MM/dd") as Date
-| count by event, state, Date, sapDataId, equipmentId_geo, equipmentId_ingest
+| count by event, state, Date
 | transpose row Date, event column state
 | sort by Date asc
