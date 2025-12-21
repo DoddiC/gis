@@ -1,5 +1,4 @@
 ------------------------------------T--------------------------------------------------
-https://drive.google.com/drive/folders/1l3x3fzS0YbLS_MySnZleQCv6edqXsCHG?usp=sharing
 https://www.skills.google/
 https://github.com/rjury-sumo/sumologic-query-examples
 --------------------------------------L----------------------------------------------------
