@@ -1,6 +1,282 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
+You're absolutely right - I need to look at your actual Sumo Logic queries and syntax from the images. Let me analyze what you're actually doing:
+
+## From Your Images - Actual Working Queries
+
+### Image 1 & 5 - Your Search Pattern:
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main 
+or _sourceCategory = */image-processor*
+
+// Your filtering approach
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop  
+| json field=_raw "message.equipmentId" as id nodrop
+
+// Using matches for flexible string matching
+| where isblank(event) or (tolowercase(_raw) matches "*error*" or tolowercase(_raw) matches "*fail*")
+```
+
+### Image 2 - Error Categorization You're Building:
+```sumo
+// Parse regex for extracting from unstructured messages
+//parse regex ("(?<err>Ingestion failed: Error fetching asset data from SAP)") nodrop
+//parse regex ("(?<err>Ingestion failed: Error fetching asset data from Geomart)") nodrop
+//parse regex ("(?<err>Invalid sap data id while fetching asset data from sap)") nodrop
+//parse regex ("(?<err>Unable to fetch asset data from geomart)") nodrop
+//parse regex ("(?<err>Invalid response while attempting to insert asset inspection record)") nodrop
+```
+
+### Image 3 - Event Structure You're Working With:
+```json
+{
+  "level": "50",
+  "event": "Add to Entry Table",
+  "state": "success",
+  "msg": "...",
+  "flightId": "1804",
+  "host": "ip-10-50-178-191...",
+  "fragment": "...",
+  "isRecursiveLongFailed": true,
+  "sqsMessageId": "...",
+  "requestId": "..."
 }
+```
+
+### Image 4 - GeoMart Error Structure:
+```json
+{
+  "name": "IngestionService",
+  "hostname": "ip-10-50-178-191",
+  "level": 50,
+  "event": "Error fetching data from Geomart",
+  "state": "error",
+  "response_body": {...},
+  "equipmentId": "1947719",
+  "sapDataId": 3094,
+  "circuitName": "...",
+  "url": "https://sherlock-be-geomart-data..."
+}
+```
+
+## Corrected Sumo Logic Queries Based on Your Actual Structure
+
+### 1. **Master Error Query (Following Your Pattern)**
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+// Extract all potential field locations
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "event" as event2 nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "msg" as msg2 nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "state" as state2 nodrop
+| json field=_raw "message.flightId" as flight_id nodrop
+| json field=_raw "flightId" as flight_id2 nodrop
+| json field=_raw "message.flightDetailId" as flight_detail_id nodrop
+| json field=_raw "flightDetailId" as flight_detail_id2 nodrop
+| json field=_raw "message.equipmentId" as equipment_id nodrop
+| json field=_raw "equipmentId" as equipment_id2 nodrop
+| json field=_raw "level" as level nodrop
+
+// Coalesce to handle inconsistent structures
+| if(isBlank(event), event2, event) as event
+| if(isBlank(msg), msg2, msg) as msg
+| if(isBlank(state), state2, state) as state
+| if(isBlank(flight_id), flight_id2, flight_id) as flight_id
+| if(isBlank(flight_detail_id), flight_detail_id2, flight_detail_id) as flight_detail_id
+| if(isBlank(equipment_id), equipment_id2, equipment_id) as equipment_id
+
+// Filter for errors only (using your isBlank pattern)
+| where (!isBlank(state) and tolowercase(state) = "error") 
+    or level in ("50", "60")
+    or tolowercase(msg) matches "*error*"
+    or tolowercase(msg) matches "*fail*"
+    or tolowercase(event) matches "*error*"
+    or tolowercase(event) matches "*fail*"
+
+// Categorize errors using parse regex (your approach)
+| "UNCATEGORIZED" as error_category
+| if(msg matches "*Error fetching asset data from SAP*" or msg matches "*Error fetching data from SAP*", 
+     "SAP_FAILURE", error_category) as error_category
+| if(msg matches "*Error fetching asset data from Geomart*" or msg matches "*Error fetching data from Geomart*" or event matches "*Geomart*", 
+     "GEOMART_FAILURE", error_category) as error_category
+| if(msg matches "*Invalid sap data id*" or msg matches "*unable to fetch asset data from sap*", 
+     "SAP_FAILURE", error_category) as error_category
+| if(msg matches "*unable to fetch asset data from geomart*" or msg matches "*Unable to fetch .* from geomart*", 
+     "GEOMART_FAILURE", error_category) as error_category
+| if(msg matches "*Invalid response while attempting to insert asset inspection*", 
+     "INSPECTION_FAILURE", error_category) as error_category
+| if(msg matches "*S3*" or msg matches "*asset data*", 
+     "S3_FAILURE", error_category) as error_category
+
+| fields flight_id, flight_detail_id, equipment_id, event, msg, error_category, state
+| count by error_category, flight_detail_id, event
+```
+
+### 2. **Status Count Query (Invalid/Ingesting/Queue)**
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "event" as event2 nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "msg" as msg2 nodrop
+| json field=_raw "message.status" as status nodrop
+| json field=_raw "status" as status2 nodrop
+| json field=_raw "message.flightDetailId" as flight_detail_id nodrop
+| json field=_raw "flightDetailId" as flight_detail_id2 nodrop
+
+| if(isBlank(event), event2, event) as event
+| if(isBlank(msg), msg2, msg) as msg
+| if(isBlank(status), status2, status) as status
+| if(isBlank(flight_detail_id), flight_detail_id2, flight_detail_id) as flight_detail_id
+
+// Look for inspection status events
+| where !isBlank(event) and (
+    tolowercase(event) matches "*inspection*" 
+    or tolowercase(msg) matches "*insert asset inspection*"
+    or tolowercase(msg) matches "*inspection record*"
+  )
+
+// Extract status from message if not in field
+| parse regex field=msg "status[:\s=]+(?<status_parsed>\w+)" nodrop
+| if(isBlank(status) and !isBlank(status_parsed), status_parsed, status) as final_status
+
+// Only count distinct flight_detail_ids with known statuses
+| where !isBlank(final_status) 
+| where tolowercase(final_status) in ("invalid", "ingesting", "inspection_queue")
+
+| count_distinct(flight_detail_id) by final_status
+```
+
+### 3. **Batch Processing Success Rate**
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "msg" as msg2 nodrop
+| json field=_raw "message.flightDetailId" as flight_detail_id nodrop
+| json field=_raw "flightDetailId" as flight_detail_id2 nodrop
+| json field=_raw "message.expectedImageCount" as expected nodrop
+| json field=_raw "expectedImageCount" as expected2 nodrop
+
+| if(isBlank(msg), msg2, msg) as msg
+| if(isBlank(flight_detail_id), flight_detail_id2, flight_detail_id) as flight_detail_id
+| if(isBlank(expected), expected2, expected) as expected
+
+// Look for batch completion logs
+| where !isBlank(msg) and (
+    tolowercase(msg) matches "*batch*" 
+    or tolowercase(msg) matches "*image processing*"
+    or tolowercase(msg) matches "*completed*"
+  )
+
+// Extract percentage from message
+| parse regex field=msg "(?<batch_pct>\d+)\s*%" nodrop
+| parse regex field=msg "(?<processed>\d+)\s*out of\s*(?<total>\d+)" nodrop
+
+// Flag incomplete batches
+| where (!isBlank(batch_pct) and num(batch_pct) < 100)
+    or (!isBlank(processed) and !isBlank(total) and num(processed) < num(total))
+    or (!isBlank(expected) and num(expected) > 0)
+
+| fields flight_detail_id, expected, processed, total, batch_pct, msg
+| count by flight_detail_id
+```
+
+### 4. **SAP/GeoMart Health Check (Time Series)**
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+| timeslice 5m
+
+| json field=_raw "event" as event nodrop
+| json field=_raw "message.event" as event2 nodrop
+| json field=_raw "state" as state nodrop
+| json field=_raw "message.state" as state2 nodrop
+| json field=_raw "msg" as msg nodrop
+| json field=_raw "message.msg" as msg2 nodrop
+
+| if(isBlank(event), event2, event) as event
+| if(isBlank(state), state2, state) as state
+| if(isBlank(msg), msg2, msg) as msg
+
+// Filter for SAP/GeoMart events only
+| where !isBlank(event) and (
+    tolowercase(event) matches "*sap*" 
+    or tolowercase(event) matches "*geomart*"
+    or tolowercase(event) matches "*geo*mod*"
+    or tolowercase(msg) matches "*sap*"
+    or tolowercase(msg) matches "*geomart*"
+  )
+
+// Determine service
+| if(tolowercase(event) matches "*sap*" or tolowercase(msg) matches "*sap*", "SAP", "GeoMart") as service
+
+// Determine outcome
+| if(tolowercase(state) = "error" 
+    or tolowercase(state) = "fail"
+    or tolowercase(msg) matches "*error*"
+    or tolowercase(msg) matches "*fail*", 
+    "failure", "success") as outcome
+
+| count by _timeslice, service, outcome
+| transpose row _timeslice column service, outcome
+```
+
+### 5. **Transaction Completeness (Image Processor)**
+
+```sumo
+_sourceCategory = */image-processor*
+
+| json field=_raw "transactionId" as txn_id nodrop
+| json field=_raw "flightDetailId" as flight_detail_id nodrop
+| json field=_raw "state" as state nodrop
+| json field=_raw "event" as event nodrop
+
+// Only look at transactions
+| where !isBlank(txn_id)
+
+// Count states per transaction
+| count by txn_id, flight_detail_id, state
+| transpose row txn_id, flight_detail_id column state
+
+// Flag incomplete transactions
+| where isBlank(success) or num(error) > 0
+
+| fields txn_id, flight_detail_id, error, success
+```
+
+## Key Differences from My Previous Response
+
+1. **Using `isBlank()` instead of `isNull()`** - as you correctly identified
+2. **Using `nodrop`** - keeps events even if field doesn't exist
+3. **Dual field extraction** - checking both `message.field` and `field` locations
+4. **Using `matches` instead of `contains`** - better pattern matching
+5. **Using `tolowercase()` for case-insensitive matching**
+6. **Parse regex for extracting from unstructured messages** - as shown in your Image 2
+7. **Coalescing fields with `if(isBlank(...))`** - handling inconsistent structures
+
+## Dashboard Panel Recommendations
+
+**Panel 1: Status Overview**
+- Query 2 above
+- Visualization: **Pie Chart** or **Single Value** (3 separate panels)
+
+**Panel 2: Error Breakdown**
+- Query 1 above
+- Visualization: **Table** grouped by `error_category`
+
+**Panel 3: SAP/GeoMart Health**
+- Query 4 above
+- Visualization: **Area Chart** with stacked failures/successes
+
+**Panel 4: Failed Flights Detail**
+- Query 1 with `| where error_category != "UNCATEGORIZED"`
+- Visualization: **Table** with columns: flight_detail_id, error_category, msg
+
+Would you like me to refine any specific query based on the exact field structure you're seeing in your logs?
