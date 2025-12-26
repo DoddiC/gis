@@ -4,6 +4,8 @@ https://www.skills.google/
 
 https://github.com/rjury-sumo/sumologic-query-examples
 
+https://loggingsucks.com/?utm_source=tldrdev
+
 **Notes**
 
 Tech Down" Meaning: User submits via app, submission fails, and they resort to paper documentation
