@@ -268,3 +268,92 @@ Query 7 with: | where count > 0
 ```
 
 This is **minimal, actionable, business-focused**. No fluff about log levels or request IDs - just "is it working or not?"
+
+
+Ah, I see the issue! Looking at your log structure:
+
+```json
+{
+  "batchStats": {
+    "totalFiles": 18,
+    "inspections": 18,
+    "successfullyProcessed": 18,
+    "invalid": 0,
+    "skipped": 0,
+    "failedFiles": []
+  },
+  "imagesReadyForLambda": 18,
+  "successStatus": "100 batch image processing - all images processed successfully"
+}
+```
+
+The percentage isn't a separate field - it's **embedded in the `successStatus` string**. And the actual counts are in the `batchStats` object.
+
+## Corrected Batch Health Query
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+| json field=_raw "message.batchStats.totalFiles" as total_files nodrop
+| json field=_raw "batchStats.totalFiles" as total_files2 nodrop
+| json field=_raw "message.batchStats.successfullyProcessed" as success_count nodrop
+| json field=_raw "batchStats.successfullyProcessed" as success_count2 nodrop
+| json field=_raw "message.batchStats.invalid" as invalid_count nodrop
+| json field=_raw "batchStats.invalid" as invalid_count2 nodrop
+| json field=_raw "message.successStatus" as success_status nodrop
+| json field=_raw "successStatus" as success_status2 nodrop
+| json field=_raw "message.flightDetailId" as flight_detail_id nodrop
+| json field=_raw "flightDetailId" as flight_detail_id2 nodrop
+
+| if(isBlank(total_files), total_files2, total_files) as total_files
+| if(isBlank(success_count), success_count2, success_count) as success_count
+| if(isBlank(invalid_count), invalid_count2, invalid_count) as invalid_count
+| if(isBlank(success_status), success_status2, success_status) as success_status
+| if(isBlank(flight_detail_id), flight_detail_id2, flight_detail_id) as flight_detail_id
+
+// Only events with batch stats
+| where !isBlank(total_files)
+
+// Calculate success percentage
+| (num(success_count) / num(total_files)) * 100 as success_pct
+
+// Flag incomplete batches (< 100% = invalid status)
+| where success_pct < 100 or num(invalid_count) > 0
+
+| fields flight_detail_id, total_files, success_count, invalid_count, success_pct, success_status
+```
+
+## Even Simpler - Just Flag Invalid Batches
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+| json field=_raw "message.batchStats" as batch_stats nodrop
+| json field=_raw "batchStats" as batch_stats2 nodrop
+| json field=_raw "message.flightDetailId" as flight_detail_id nodrop
+| json field=_raw "flightDetailId" as flight_detail_id2 nodrop
+
+| if(isBlank(batch_stats), batch_stats2, batch_stats) as batch_stats
+| if(isBlank(flight_detail_id), flight_detail_id2, flight_detail_id) as flight_detail_id
+
+// Parse the nested JSON
+| json field=batch_stats "totalFiles" as total nodrop
+| json field=batch_stats "successfullyProcessed" as success nodrop
+| json field=batch_stats "invalid" as invalid nodrop
+
+// Only show problems
+| where !isBlank(total) and (num(success) < num(total) or num(invalid) > 0)
+
+| fields flight_detail_id, total, success, invalid
+| count by flight_detail_id
+```
+
+## What This Actually Shows You
+
+- **success_count < total_files** → Some images failed → Status will be `invalid`
+- **invalid_count > 0** → Explicit failures → Status will be `invalid`
+- **success_count = total_files AND invalid_count = 0** → 100% success → Status will be `ingesting` (then Lambda moves to `inspection_queue`)
+
+This directly maps to what Ibrahim explained: "If 14 out of 15 successful, status = invalid. If 15 out of 15, status = ingesting."
+
+Want me to refine this further based on other fields you're seeing in the logs?
