@@ -25,3 +25,14 @@ there was also a failure in qa pipeline, by any chance, was it logged (want to s
 rethrowing error with diff messages, might see a diff message with the logging (code)
 
 not following best practices, inconsistencies, we can possibly make it intuitive, 
+
+logs should be self explanatory
+
+processing - done creating asset images, extracting geojson, say ingestion is complete
+
+parameters
+
+transaction ID, what went wrong for a given flight
+retries managing to queue (dead letter queue), retries the same message 3 times, if after 3 times, message goes to dlq, we ccan manually iunspect those messages and retry them back to source queue to process again
+
+ternary operator
