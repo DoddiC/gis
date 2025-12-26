@@ -1,6 +1,129 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
-}
+Ah! You want **distributed tracing/transaction flow** - track a single request's journey through the system! Here's the solution:
+
+## Understanding Your Need
+- **Flight Detail ID** = unique request identifier (like `requestId`, `tranId`, `traceId`)
+- Track this ID across multiple events/steps
+- See which step failed in the flow
+- Pinpoint exact failure location
+
+## Solution 1: Transaction Operator (Perfect for This!)
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main
+| json field=_raw "message.requestId", "message.event", "message.state", "message.equipmentId", "message.sapDataId" as requestId, event, state, equipmentId, sapDataId nodrop
+| where !isBlank(requestId)
+| transaction on requestId 
+  with "Ingest Structures" as step1,
+  with "error fetching from geomart" as step2,
+  with "Batch Job Processing" as step3,
+  with "Create Report" as step4
+  fringe=10m
+| where _transaction_status = "timeout" or _transaction_status = "error"
+| fields requestId, _transaction_status, step1_state, step2_state, step3_state, step4_state
+```
+
+**What this does**:
+- Groups all events by `requestId` (your flight detail ID)
+- Tracks each step in the flow
+- Shows which step failed
+- `fringe=10m` = max time between events before considering transaction complete
+
+## Solution 2: Transactionize (For Session-Based Tracking)
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main
+| json field=_raw "message.requestId", "message.tranId", "message.equipmentId", "message.event", "message.state" as requestId, tranId, equipmentId, event, state nodrop
+| where !isBlank(requestId) or !isBlank(tranId)
+| transactionize requestId, tranId, equipmentId
+| where state matches "*error*" or state matches "*fail*"
+| fields _transactionid, requestId, tranId, equipmentId, event, state, _messageTime
+| sort by _transactionid, _messageTime asc
+```
+
+**What this does**:
+- Links related events using multiple IDs
+- Creates `_transactionid` field grouping related logs
+- Shows the flow of events chronologically
+
+## Solution 3: Simple Join-Based Flow Tracking
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main
+| json field=_raw "message.requestId", "message.event", "message.state", "message.equipmentId" as requestId, event, state, equipmentId nodrop
+| where !isBlank(requestId)
+| join 
+  (parse "\"event\":\"Ingest Structures\"" as start | fields requestId, state as start_state) as T1,
+  (parse "\"event\":\"error fetching from geomart\"" as fetch | fields requestId, state as fetch_state) as T2,
+  (parse "\"event\":\"Batch Job Processing\"" as batch | fields requestId, state as batch_state) as T3
+  on T1.requestId = T2.requestId = T3.requestId
+| where fetch_state = "error" or batch_state = "error"
+| fields requestId, start_state, fetch_state, batch_state
+```
+
+## Solution 4: Practical Flow View (My Recommendation)
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main
+| json field=_raw "message.requestId", "message.event", "message.state", "message.equipmentId", "message.sapDataId" as requestId, event, state, equipmentId, sapDataId nodrop
+| where !isBlank(requestId)
+| concat(event, ":", state) as step_status
+| withtime step_status
+| first(step_status_withtime) as first_step, last(step_status_withtime) as last_step by requestId
+| where last_step matches "*error*" or last_step matches "*fail*"
+| parse field=last_step "*:*" as failed_event, failed_state
+| fields requestId, first_step, last_step, failed_event, failed_state
+| sort by _messageTime desc
+| limit 50
+```
+
+**What this does**:
+- Tracks first and last step for each request
+- Identifies failed requests
+- Shows exactly which event failed
+- Clean, actionable output
+
+## Solution 5: Full Trace with All Steps
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main
+| json field=_raw "message.requestId", "message.event", "message.state", "message.equipmentId", "message.sapDataId", "timestamp" as requestId, event, state, equipmentId, sapDataId, timestamp nodrop
+| where !isBlank(requestId)
+| concat(formatDate(parseDate(timestamp), "HH:mm:ss"), " - ", event, " [", state, "]") as step_detail
+| values(step_detail) as all_steps by requestId
+| where all_steps matches "*error*" or all_steps matches "*fail*"
+| fields requestId, all_steps
+| sort by _messageTime desc
+| limit 20
+```
+
+**Output Example**:
+```
+requestId: REQ-12345
+all_steps: 
+  10:15:30 - Ingest Structures [success]
+  10:15:45 - error fetching from geomart [error] ← FAILED HERE
+  10:16:00 - Batch Job Processing [pending]
+```
+
+## Best Practice Dashboard Query
+
+```sumo
+_sourceCategory=QA/Sumo-SherlockV2Svc-be-ingestion-main
+| json field=_raw "message.requestId", "message.event", "message.state", "message.equipmentId", "message.sapDataId" as requestId, event, state, equipmentId, sapDataId nodrop
+| where !isBlank(requestId)
+| transaction on requestId fringe=15m
+| where _transaction_status != "complete"
+| parse regex field=_raw "\"event\":\"(?<failed_at>[^\"]+)\".*\"state\":\"(error|fail|failed)\"" nodrop
+| fields requestId, equipmentId, sapDataId, failed_at, _transaction_status, _transaction_duration
+| sort by _messageTime desc
+| limit 100
+```
+
+**Perfect for your use case because**:
+- ✅ Tracks unique flight detail ID (requestId)
+- ✅ Shows exactly which step failed (`failed_at`)
+- ✅ Includes equipment/SAP IDs for context
+- ✅ Shows transaction status and duration
+- ✅ Only shows problematic requests
+
+**Which approach fits your tracing needs best?**
