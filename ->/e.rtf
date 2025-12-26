@@ -1,6 +1,851 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
+just an outline, recheck with correct names, metadata, etc. recheck for accuracy
+
+# Ingestion Service Flight Traceability Analyzer
+
+You are a forensic debugger for an **ingestion pipeline** that processes flight data through multiple stages (S3 → SAP → GeoMart). Your mission: **trace any FlightDetailID through its complete journey and pinpoint exact failure points**.
+
+## Context Understanding
+
+**System Architecture:**
+- **Entry Point**: Ingestion service receives flight data
+- **Processing Stages**: S3 storage → SAP integration → GeoMart processing
+- **Outputs**: Asset images created, GeoJSON extracted, ingestion completion marker
+- **Failure Handling**: 3 retry attempts → Dead Letter Queue (DLQ) on exhaustion
+
+**Identifiers in Play:**
+- `FlightDetailID` / `flightDetailId` / `flight_detail_id` = UNIQUE request identifier (your correlation key)
+- `transactionID` / `transactionId` / `transaction_id` = may map to FlightDetailID or be separate
+- `requestId` / `request_id` = may exist at API boundary
+
+**Known Failure Points:**
+- S3 operations (read/write failures)
+- SAP integration calls (external dependency)
+- GeoMart processing (data transformation)
+- QA pipeline (validation/testing stage)
+
+**Logging Anti-Patterns Expected:**
+- Inconsistent field naming (camelCase vs snake_case)
+- Error rethrowing with different messages (same root cause, multiple error strings)
+- Missing correlation IDs in some stages
+- String-embedded structured data
+
+---
+
+## Analysis Mission: Flight-by-Flight Traceability
+
+### PHASE 1: FLIGHT IDENTIFIER ARCHAEOLOGY
+*Find every way FlightDetailID appears—unify them*
+
+**Discovery Strategy (use nodrop everywhere):**
+
+```sumo
+// Extract all possible FlightDetailID variants
+| json field=_raw "FlightDetailID" as flight_id_1 nodrop
+| json field=_raw "flightDetailId" as flight_id_2 nodrop  
+| json field=_raw "flight_detail_id" as flight_id_3 nodrop
+| json field=_raw "flightId" as flight_id_4 nodrop
+| json field=_raw "flight_id" as flight_id_5 nodrop
+
+// Check nested locations
+| json field=_raw "context.flight.id" as flight_id_nested nodrop
+| json field=_raw "metadata.flightDetailId" as flight_id_meta nodrop
+| json field=_raw "request.flight_detail_id" as flight_id_req nodrop
+
+// Parse from strings (when structured logging failed)
+| parse regex field=_raw "(?:flight.*?id|FlightDetailID)[:=\s]+['\"]?(?<flight_id_string>[A-Za-z0-9\-_]+)" nodrop
+
+// Coalesce into single canonical field
+| if(flight_id_1 matches "*", flight_id_1,
+     if(flight_id_2 matches "*", flight_id_2,
+        if(flight_id_3 matches "*", flight_id_3,
+           if(flight_id_4 matches "*", flight_id_4,
+              if(flight_id_5 matches "*", flight_id_5,
+                 if(flight_id_nested matches "*", flight_id_nested,
+                    if(flight_id_meta matches "*", flight_id_meta,
+                       if(flight_id_req matches "*", flight_id_req,
+                          flight_id_string)))))))) as FlightDetailID nodrop
+```
+
+**Expected Insights Output:**
+
+```
+FLIGHT IDENTIFIER MAPPING:
+
+Primary Field: "flightDetailId"
+├─ Found in: [N]% of events ([X] out of [Y] total)
+├─ Format: [pattern - e.g., "FLT-20231215-00123"]
+├─ Sample: [actual value from logs]
+└─ Unique flights: [M] distinct IDs
+
+Secondary Variants:
+├─ "FlightDetailID" (capital): [N] events  
+├─ "flight_detail_id" (snake): [M] events
+├─ "flightId" (abbreviated): [X] events
+└─ Nested in "context.flight.id": [Y] events
+
+String-Embedded Occurrences:
+├─ Parsed from message strings: [N] events
+├─ Example: "Processing flight FLT-20231215-00123"
+└─ Pattern: [regex used to extract]
+
+TransactionID Relationship:
+├─ transactionID appears in: [N]% of events
+├─ Mapping: [1:1 with FlightDetailID? 1:many? independent?]
+└─ Query to test: [shows if they correlate]
+
+CRITICAL FINDING - Orphaned Events:
+├─ [N] events have NO FlightDetailID in any form
+├─ Event types: [list - e.g., "initial_validation", "retry_exhausted"]
+├─ Stage: [where in pipeline these occur]
+└─ Impact: Cannot trace these [N] events to specific flights
+
+Coverage Score: [X]% of events traceable by FlightDetailID
+```
+
+---
+
+### PHASE 2: PIPELINE STAGE DETECTION
+*Map the complete ingestion journey*
+
+**Stage Identification Strategy:**
+
+```sumo
+// Detect stage by field presence (dimensionality markers)
+| if(s3_bucket matches "*" OR s3_key matches "*", "S3_STAGE", "") as stage_marker nodrop
+| if(sap_endpoint matches "*" OR sap_response matches "*", "SAP_STAGE", stage_marker) as stage_marker nodrop  
+| if(geomart_id matches "*" OR geojson matches "*", "GEOMART_STAGE", stage_marker) as stage_marker nodrop
+| if(asset_image_url matches "*", "ASSET_CREATION", stage_marker) as stage_marker nodrop
+| if(qa_result matches "*" OR validation_status matches "*", "QA_PIPELINE", stage_marker) as stage_marker nodrop
+
+// Detect by explicit stage/step fields
+| json field=_raw "stage" as explicit_stage nodrop
+| json field=_raw "step" as explicit_step nodrop
+| json field=_raw "process" as process_name nodrop
+
+// Detect by log message patterns
+| if(_raw matches "*Uploading to S3*", "S3_UPLOAD", "") as msg_stage nodrop
+| if(_raw matches "*Calling SAP*", "SAP_CALL", msg_stage) as msg_stage nodrop
+| if(_raw matches "*GeoMart processing*", "GEOMART_PROC", msg_stage) as msg_stage nodrop
+| if(_raw matches "*Creating asset images*", "ASSET_CREATE", msg_stage) as msg_stage nodrop
+| if(_raw matches "*Extracting GeoJSON*", "GEOJSON_EXTRACT", msg_stage) as msg_stage nodrop
+| if(_raw matches "*Ingestion complete*", "COMPLETION", msg_stage) as msg_stage nodrop
+
+// Final stage assignment (prefer explicit, fallback to inference)
+| if(explicit_stage matches "*", explicit_stage,
+     if(stage_marker matches "*", stage_marker, msg_stage)) as pipeline_stage nodrop
+```
+
+**Expected Insights Output:**
+
+```
+PIPELINE STAGE MAPPING:
+
+Complete Ingestion Flow (Happy Path):
+┌─────────────────────────────────────────────────┐
+│ 1. INGESTION_START                              │
+│    Fields: [initial_timestamp, flightDetailId,  │
+│             source, payload_size]               │
+│    Detection: message="Received flight data"    │
+├─────────────────────────────────────────────────┤
+│ 2. S3_UPLOAD                                    │
+│    Fields: [s3_bucket, s3_key, upload_duration] │
+│    Detection: s3_* fields present              │
+│    Duration: ~[X]ms (median)                    │
+├─────────────────────────────────────────────────┤
+│ 3. SAP_INTEGRATION                              │
+│    Fields: [sap_endpoint, sap_request_id,       │
+│             sap_status, sap_response_time]      │
+│    Detection: sap_* fields present              │
+│    Duration: ~[X]ms (median)                    │
+│    Known Failure Point: SAP timeouts            │
+├─────────────────────────────────────────────────┤
+│ 4. GEOMART_PROCESSING                           │
+│    Fields: [geomart_id, geometry_validated,     │
+│             feature_count]                      │
+│    Detection: geomart_* fields present          │
+│    Duration: ~[X]ms (median)                    │
+├─────────────────────────────────────────────────┤
+│ 5. ASSET_CREATION                               │
+│    Fields: [asset_image_url, image_count,       │
+│             rendering_time]                     │
+│    Detection: message="done creating asset..."  │
+│    Completion marker: [field/message]           │
+├─────────────────────────────────────────────────┤
+│ 6. GEOJSON_EXTRACTION                           │
+│    Fields: [geojson_size, feature_extracted]    │
+│    Detection: message="extracting geojson"      │
+├─────────────────────────────────────────────────┤
+│ 7. QA_PIPELINE (may be async)                   │
+│    Fields: [qa_result, validation_errors]       │
+│    Detection: qa_* or validation_* fields       │
+│    Note: QA failures may appear late            │
+├─────────────────────────────────────────────────┤
+│ 8. INGESTION_COMPLETE                           │
+│    Fields: [completion_status, total_duration]  │
+│    Detection: message="ingestion complete"      │
+│    Success marker: status="success"             │
+└─────────────────────────────────────────────────┘
+
+Stage Coverage Analysis:
+├─ All 8 stages logged: [N] flights ([X]%)
+├─ Partial logging: [M] flights (missing stages: [list])
+├─ Single-event flights: [Y] flights (no stage visibility)
+└─ Critical: [Z] flights have gaps between S3→SAP or SAP→GeoMart
+
+STAGE DETECTION QUALITY:
+├─ Explicit stage field: [N]% of events have it
+├─ Inferred from fields: [M]% (using dimensionality)
+├─ Inferred from messages: [X]% (using string matching)
+└─ Unidentifiable: [Y]% (no stage markers found)
+```
+
+---
+
+### PHASE 3: FAILURE POINT ISOLATION
+*Find exact step that broke, show full context*
+
+**Multi-Pattern Failure Detection:**
+
+```sumo
+// Capture all error manifestations (nodrop everything)
+| json field=_raw "error" as err_field nodrop
+| json field=_raw "exception" as exception_field nodrop
+| json field=_raw "status" as status_field nodrop
+| json field=_raw "failed" as failed_field nodrop
+| json field=_raw "retry_count" as retry_num nodrop
+
+// Error in strings (because rethrowing changes message)
+| if(_raw matches "*error*" OR _raw matches "*Error*" OR 
+     _raw matches "*failed*" OR _raw matches "*Failed*" OR
+     _raw matches "*exception*", "ERROR_IN_MSG", "") as error_signal nodrop
+
+// Specific failure indicators per stage
+| if(_raw matches "*S3*" AND _raw matches "*fail*", "S3_FAILURE", "") as s3_fail nodrop
+| if(_raw matches "*SAP*" AND _raw matches "*fail*", "SAP_FAILURE", "") as sap_fail nodrop  
+| if(_raw matches "*GeoMart*" AND _raw matches "*fail*", "GEOMART_FAILURE", "") as geo_fail nodrop
+| if(_raw matches "*QA*" AND _raw matches "*fail*", "QA_FAILURE", "") as qa_fail nodrop
+
+// DLQ indicators
+| if(_raw matches "*dead letter*" OR _raw matches "*DLQ*" OR 
+     _raw matches "*retry exhausted*", "DLQ_SENT", "") as dlq_marker nodrop
+
+// Unified failure classification
+| if(err_field = "true" OR exception_field matches "*" OR 
+     status_field matches "*fail*" OR failed_field = "true" OR
+     error_signal matches "*" OR toLong(retry_num) > 0,
+     "FAILURE_DETECTED", "SUCCESS") as outcome nodrop
+```
+
+**Expected Insights Output:**
+
+```
+FAILURE LANDSCAPE: FlightDetailID Traceability
+
+Total Flights Processed: [N] unique FlightDetailIDs
+├─ Successful: [X] flights ([Y]%)
+├─ Failed: [M] flights ([Z]%)
+└─ Unknown/Incomplete: [P] flights (no completion marker)
+
+FAILURE BREAKDOWN BY STAGE:
+
+S3 Failures: [N] flights
+├─ Error patterns found:
+│  ├─ "S3 upload failed": [X] occurrences
+│  ├─ "AccessDenied": [Y] occurrences  
+│  └─ "NoSuchBucket": [Z] occurrences
+├─ Retry behavior: [M] were retried [avg X] times
+└─ DLQ: [P] flights sent to DLQ after retry exhaustion
+
+SAP Integration Failures: [N] flights
+├─ Error patterns found:
+│  ├─ "SAP timeout": [X] occurrences
+│  ├─ "SAP connection refused": [Y] occurrences
+│  ├─ "SAP 500 error": [Z] occurrences
+│  └─ [rethrowing detected]: same flight shows multiple error messages
+├─ Retry behavior: [stats]
+└─ Context: [fields present at SAP failure]
+
+GeoMart Processing Failures: [N] flights
+├─ Error patterns found:
+│  ├─ "Invalid geometry": [X] occurrences
+│  ├─ "GeoMart API error": [Y] occurrences
+│  └─ "Feature extraction failed": [Z] occurrences
+└─ Note: [insight about data quality issues if pattern emerges]
+
+QA Pipeline Failures: [N] flights
+├─ Detection: [how QA failures appear in logs]
+├─ Error patterns:
+│  ├─ "Validation failed": [X] occurrences  
+│  └─ "QA check timeout": [Y] occurrences
+└─ CRITICAL: QA failures may be logged async, hard to correlate
+
+DETAILED FAILURE TRACE: FlightDetailID = [example_id]
+
+Complete Event Sequence:
+─────────────────────────────────────────────────────
+Event 1 @ 2024-12-20T10:15:23.145Z | Stage: INGESTION_START
+  outcome: SUCCESS
+  flightDetailId: FLT-20241220-00842
+  transactionId: TXN-9384729
+  source: "external_api"
+  payload_size: 45632 bytes
+
+Event 2 @ 2024-12-20T10:15:23.892Z | Stage: S3_UPLOAD  
+  outcome: SUCCESS
+  s3_bucket: "flight-data-prod"
+  s3_key: "raw/2024/12/20/FLT-20241220-00842.json"
+  upload_duration_ms: 742
+  
+Event 3 @ 2024-12-20T10:15:25.103Z | Stage: SAP_INTEGRATION
+  outcome: **FAILURE** ← FAILURE POINT IDENTIFIED
+  sap_endpoint: "https://sap.company.com/api/v2/flights"
+  sap_request_id: "SAP-REQ-8473829"
+  error: true
+  error_message: "Connection timeout after 5000ms"
+  exception: "SocketTimeoutException"
+  retry_count: 0
+  
+Event 4 @ 2024-12-20T10:15:30.234Z | Stage: SAP_INTEGRATION (RETRY 1)
+  outcome: **FAILURE**
+  error_message: "SAP service unavailable" ← RETHROWN: different message, same root cause
+  retry_count: 1
+  
+Event 5 @ 2024-12-20T10:15:35.667Z | Stage: SAP_INTEGRATION (RETRY 2)  
+  outcome: **FAILURE**
+  error_message: "Failed to connect to SAP endpoint" ← RETHROWN AGAIN
+  retry_count: 2
+
+Event 6 @ 2024-12-20T10:15:41.002Z | Stage: SAP_INTEGRATION (RETRY 3)
+  outcome: **FAILURE**
+  retry_count: 3
+  retry_exhausted: true
+  
+Event 7 @ 2024-12-20T10:15:41.156Z | Stage: DLQ_HANDLING
+  message: "Moving to dead letter queue after 3 retry attempts"
+  dlq_name: "ingestion-dlq-prod"
+  dlq_message_id: "DLQ-MSG-38472"
+─────────────────────────────────────────────────────
+
+FAILURE ANALYSIS:
+
+Failure Point: Event 3 - SAP_INTEGRATION stage
+Failed At: 2024-12-20T10:15:25.103Z (1.9 seconds into processing)
+Root Cause Signal: "Connection timeout after 5000ms"
+
+HIGH-DIMENSIONALITY CONTEXT AT FAILURE:
+All [N] fields present at failure event:
+
+Identifiers:
+  flightDetailId: FLT-20241220-00842
+  transactionId: TXN-9384729
+  sap_request_id: SAP-REQ-8473829
+  correlation_id: [value if exists]
+
+Request Context:
+  sap_endpoint: https://sap.company.com/api/v2/flights
+  http_method: POST
+  request_body_size: 45632 bytes
+  timeout_setting: 5000ms
+
+System Context:  
+  service_name: ingestion-service
+  instance_id: ing-prod-03
+  memory_usage_mb: 1842
+  cpu_percent: 67
+
+Error Context:
+  error: true
+  error_message: "Connection timeout after 5000ms"
+  exception: "SocketTimeoutException"
+  stack_trace: [if present]
+  retry_count: 0
+
+Timing:
+  timestamp: 2024-12-20T10:15:25.103Z
+  duration_since_start_ms: 1958
+  sap_response_time_ms: null (timed out)
+
+RETRY PATTERN ANALYSIS:
+Retry 1 @ +5.131s: error_message changed to "SAP service unavailable"
+Retry 2 @ +10.564s: error_message changed to "Failed to connect to SAP endpoint"  
+Retry 3 @ +15.899s: Same root cause (SAP connectivity)
+└─ FINDING: Error rethrowing masks root cause - all 4 failures are same issue
+
+CONTEXT CHANGES (Success Events → Failure Event):
+Last Success (Event 2 - S3_UPLOAD):
+  stage: S3_UPLOAD
+  outcome: SUCCESS
+  s3_upload_duration: 742ms (normal)
+
+First Failure (Event 3 - SAP_INTEGRATION):
+  stage: SAP_INTEGRATION  
+  outcome: FAILURE
+  
+Changed Context:
+├─ NEW field: sap_endpoint appeared
+├─ NEW field: error appeared (value: true)
+├─ NEW field: exception appeared
+└─ TIMEOUT: sap_response_time_ms is null (should have value)
+
+ROOT CAUSE HYPOTHESIS:
+Primary: SAP service unreachable/overloaded at this timestamp
+├─ Evidence: Connection timeout, not application error
+├─ Check: Other flights at same time range  
+└─ Investigation: SAP service health logs for 2024-12-20 10:15-10:16
+
+Secondary: Network partition between ingestion-service and SAP
+├─ Evidence: Retry exhaustion (3 attempts all fail identically)
+└─ Investigation: Network logs, DNS resolution for sap.company.com
+
+Tertiary: Timeout threshold too aggressive (5000ms)
+├─ Check: P95/P99 SAP response times normally
+└─ If SAP response_time often >5000ms, increase timeout
+
+WHERE TO LOOK:
+1. SAP service logs: 2024-12-20 10:15:00 - 10:16:00 UTC
+2. Network logs: connections from ing-prod-03 → sap.company.com
+3. Other flights: query for flights at same timestamp to see if systemic
+```
+
+---
+
+### PHASE 4: RETRY & DLQ INTELLIGENCE
+*Track retry behavior and DLQ content*
+
+**Expected Insights Output:**
+
+```
+RETRY & DLQ ANALYSIS:
+
+Retry Distribution:
+├─ Flights with 0 retries: [N] ([X]% - succeeded first try)
+├─ Flights with 1 retry: [M] ([Y]% - failed once, succeeded on retry)
+├─ Flights with 2 retries: [P] ([Z]%)  
+├─ Flights with 3 retries: [Q] ([W]% - exhausted, sent to DLQ)
+└─ Average retries per flight: [X.XX]
+
+Retry Success Rate by Stage:
+S3 Stage:
+├─ First attempt success: [X]%
+├─ Retry 1 success: [Y]%
+├─ Retry 2 success: [Z]%
+└─ Interpretation: [S3 failures usually transient or persistent?]
+
+SAP Stage:
+├─ First attempt success: [X]%
+├─ Retry 1 success: [Y]%  
+└─ Interpretation: [SAP failures retry-able or systemic?]
+
+GeoMart Stage:
+├─ First attempt success: [X]%
+└─ Retry success: [Y]%
+
+DEAD LETTER QUEUE CONTENTS:
+
+Total Flights in DLQ: [N] FlightDetailIDs
+├─ Failed at S3: [X] flights
+├─ Failed at SAP: [Y] flights
+├─ Failed at GeoMart: [Z] flights  
+└─ Failed at QA: [P] flights (if any)
+
+DLQ Message Example: FlightDetailID = [example]
+─────────────────────────────────────────
+DLQ Entry Details:
+  flightDetailId: FLT-20241220-00842
+  dlq_message_id: DLQ-MSG-38472
+  dlq_timestamp: 2024-12-20T10:15:41.156Z
+  failure_stage: SAP_INTEGRATION
+  retry_count: 3
+  error_summary: "Connection timeout after 3 attempts"
+  
+Last Known State Before DLQ:
+  last_successful_stage: S3_UPLOAD
+  last_error: "Failed to connect to SAP endpoint"
+  sap_endpoint: https://sap.company.com/api/v2/flights
+  
+Recovery Action:
+  1. Inspect this message in DLQ: DLQ-MSG-38472
+  2. Verify SAP service now available
+  3. Manually retry: move from DLQ → source queue
+  4. Monitor: check if FlightDetailID=FLT-20241220-00842 succeeds
+─────────────────────────────────────────
+
+MANUAL INSPECTION QUERY:
+To pull this flight's full history from DLQ:
+
+| where FlightDetailID = "FLT-20241220-00842"
+| where dlq_message_id = "DLQ-MSG-38472" OR message matches "*DLQ-MSG-38472*"
+| sort by _messagetime asc
+| fields _messagetime, pipeline_stage, outcome, error_message, retry_count, *
+
+BATCH INSPECTION PATTERN:
+For all [N] flights in DLQ, common patterns:
+
+Most Common DLQ Reason:
+├─ "SAP timeout": [X] flights ([Y]%)
+├─ Action: If SAP now healthy, batch retry these
+└─ Query to identify: [pattern to find SAP timeouts in DLQ]
+
+Second Common:
+├─ "Invalid geometry": [M] flights  
+├─ Action: Data quality issue, needs manual data fix before retry
+└─ These should NOT be retried until source data corrected
+```
+
+---
+
+### PHASE 5: QA PIPELINE FAILURE DETECTION
+*Find QA failures even if async/disconnected*
+
+**Expected Insights Output:**
+
+```
+QA PIPELINE FAILURE TRACKING:
+
+QA Event Detection:
+├─ Events with "qa_result" field: [N]
+├─ Events with "validation_status": [M]
+├─ Events with message containing "QA": [X]
+└─ Total QA-related events: [Y]
+
+QA Failure Correlation Challenge:
+Problem: QA failures may log WITHOUT FlightDetailID
+├─ [N]% of QA events have FlightDetailID
+├─ [M]% require inference (timing + context matching)
+└─ [X]% completely orphaned (cannot correlate)
+
+QA FAILURE EXAMPLE: FlightDetailID = [example_id]
+
+Main Processing Flow:
+─────────────────────────────────────────
+Event 1-7: [as shown earlier, flight succeeded through INGESTION_COMPLETE]
+Event 8 @ 2024-12-20T10:16:45.332Z | Stage: COMPLETION
+  message: "Ingestion complete for FLT-20241220-00842"
+  status: "success"
+  total_duration_ms: 82187
+─────────────────────────────────────────
+
+Async QA Event (logged 2 minutes later):
+─────────────────────────────────────────  
+Event 9 @ 2024-12-20T10:18:12.441Z | Stage: QA_PIPELINE
+  qa_result: "FAILED"
+  validation_errors: ["Missing required field: altitude", "Invalid timestamp format"]
+  flightDetailId: FLT-20241220-00842 ← LUCKY: ID present, can correlate
+  
+  FINDING: Flight marked complete but QA failed later
+  Impact: Data quality issue not caught during main flow
+─────────────────────────────────────────
+
+Orphaned QA Failure (NO FlightDetailID):
+─────────────────────────────────────────
+Event @ 2024-12-20T10:19:03.772Z | Stage: QA_PIPELINE
+  qa_result: "FAILED"  
+  validation_errors: ["Geometry bounds exceed expected region"]
+  transactionId: TXN-9384888
+  s3_key: "raw/2024/12/20/FLT-20241220-00855.json"
+  
+  Problem: No flightDetailId field
+  Workaround: Match via s3_key or transactionId
+  Query: Find main flow event with matching s3_key
+─────────────────────────────────────────
+
+QA FAILURE PATTERNS:
+├─ [N] total QA failures detected
+├─ [M] successfully correlated to FlightDetailID
+├─ [X] require indirect correlation (s3_key, transactionId)
+└─ [Y] completely orphaned (cannot determine which flight)
+
+Most Common QA Failures:
+1. "Missing required field": [N] occurrences
+   └─ Fields: [list which fields commonly missing]
+2. "Invalid geometry": [M] occurrences
+3. "Timestamp format error": [X] occurrences
+
+CRITICAL INSIGHT:
+QA pipeline logs asynchronously, sometimes AFTER ingestion marked complete
+├─ Risk: False positive "success" when QA will fail later
+├─ Fix needed: Wait for QA before marking ingestion complete
+└─ Or: Explicit QA_PENDING state in flow
+```
+
+---
+
+### PHASE 6: WIDE EVENT RECONSTRUCTION
+*Show what perfect logging would look like*
+
+**Expected Insights Output:**
+
+```
+IDEAL WIDE EVENT DESIGN:
+
+Current State (FlightDetailID = FLT-20241220-00842):
+├─ Generated [9] separate events  
+├─ Requires [8] correlation operations to trace
+├─ Retry events duplicate context (inefficient)
+└─ QA event disconnected temporally (risky)
+
+Ideal State: ONE wide event at completion
+
+```json
+{
+  // === IDENTIFIERS (high cardinality) ===
+  "flightDetailId": "FLT-20241220-00842",
+  "transactionId": "TXN-9384729",
+  "correlation_id": "CORR-38472829",
+  
+  // === REQUEST CONTEXT ===
+  "ingestion_start_time": "2024-12-20T10:15:23.145Z",
+  "source": "external_api",
+  "payload_size_bytes": 45632,
+  
+  // === S3 STAGE ===
+  "s3_upload_start": "2024-12-20T10:15:23.403Z",
+  "s3_upload_end": "2024-12-20T10:15:23.892Z",
+  "s3_upload_duration_ms": 489,
+  "s3_bucket": "flight-data-prod",
+  "s3_key": "raw/2024/12/20/FLT-20241220-00842.json",
+  "s3_status": "success",
+  
+  // === SAP STAGE ===  
+  "sap_call_start": "2024-12-20T10:15:25.103Z",
+  "sap_call_end": null,
+  "sap_endpoint": "https://sap.company.com/api/v2/flights",
+  "sap_request_id": "SAP-REQ-8473829",
+  "sap_status": "failed",
+  "sap_error": "Connection timeout after 5000ms",
+  "sap_exception": "SocketTimeoutException",
+  "sap_retry_count": 3,
+  "sap_retry_1_error": "SAP service unavailable",
+  "sap_retry_2_error": "Failed to connect to SAP endpoint",  
+  "sap_retry_3_error": "Failed to connect to SAP endpoint",
+  "sap_total_duration_ms": 15899,
+  
+  // === GEOMART STAGE (not reached) ===
+  "geomart_status": "not_started",
+  
+  // === ASSET CREATION (not reached) ===
+  "asset_creation_status": "not_started",
+  
+  // === GEOJSON EXTRACTION (not reached) ===
+  "geojson_extraction_status": "not_started",
+  
+  // === QA PIPELINE ===
+  "qa_status": "not_run",
+  
+  // === OUTCOME ===
+  "ingestion_status": "failed",
+  "failed_at_stage": "SAP_INTEGRATION",
+  "failure_reason": "SAP connectivity issue",
+  "dlq_status": "sent",
+  "dlq_message_id": "DLQ-MSG-38472",
+  "dlq_timestamp": "2024-12-20T10:15:41.156Z",
+  
+  // === TIMING ===
+  "ingestion_end_time": "2024-12-20T10:15:41.156Z",
+  "total_duration_ms": 18011,
+  
+  // === SYSTEM CONTEXT ===
+  "service_name": "ingestion-service",
+  "service_instance": "ing-prod-03",
+  "memory_usage_mb": 1842,
+  "cpu_percent": 67
 }
+```
+
+BENEFITS OF WIDE EVENT:
+├─ Correlation: O(1) lookup instead of O(N) joins
+├─ Completeness: All context in one place
+├─ Retry clarity: All retry attempts captured in single record
+├─ Stage visibility: Can see entire pipeline status at once
+├─ Failure diagnosis: Immediate context without searching
+└─ Storage: Less overhead (no repeated identifiers in each event)
+
+MIGRATION PATH (start small):
+Phase 1: Emit wide event for FAILED flights only
+├─ Captures all [M] fields from failure context
+├─ Easier debugging for critical cases
+└─ Test with small batch of flights
+
+Phase 2: Emit wide event for ALL flights  
+├─ Sample 5% of successes, 100% of failures
+└─ Validate no performance impact
+
+Phase 3: Make wide event the ONLY event
+└─ Deprecate incremental logging
+```
+
+---
+
+### PHASE 7: ACTIONABLE QUERY PATTERNS
+*
+Practical queries for daily operations*
+
+**Expected Insights Output:**
+
+```
+OPERATIONAL QUERY PLAYBOOK:
+
+=== QUERY 1: Trace Single Flight ===
+Use Case: "FlightDetailID FLT-20241220-00842 failed, what happened?"
+
+| json field=_raw "flightDetailId" as FlightDetailID nodrop
+| json field=_raw "FlightDetailID" as fid2 nodrop
+| if(FlightDetailID matches "*", FlightDetailID, fid2) as FlightDetailID nodrop
+| where FlightDetailID = "FLT-20241220-00842"
+| sort by _messagetime asc
+| fields _messagetime, pipeline_stage, outcome, error_message, retry_count, *
+
+Returns: Complete timeline for this flight across all stages
+
+=== QUERY 2: Find All Failures in Time Window ===
+Use Case: "What failed in the last hour?"
+
+[timestamp filter]
+| [failure detection logic]
+| where outcome = "FAILURE_DETECTED"
+| count by FlightDetailID, pipeline_stage, error_message
+| sort by _count desc
+
+Returns: List of failed flights, grouped by failure type
+
+=== QUERY 3: Check DLQ Contents ===
+Use Case: "What's stuck in DLQ right now?"
+
+| where message matches "*dead letter*" OR dlq_message_id matches "*"
+| json field=_raw "flightDetailId" as FlightDetailID nodrop
+| json field=_raw "dlq_message_id" as dlq_id nodrop
+| sort by _messagetime desc
+| fields _messagetime, FlightDetailID, dlq_id, failure_stage, error_message
+
+Returns: List of flights in DLQ ready for manual inspection
+
+=== QUERY 4: SAP Health Check ===
+Use Case: "Is SAP down? How many flights failing at SAP?"
+
+[last 15 minutes]
+| where pipeline_stage = "SAP_INTEGRATION" OR sap_endpoint matches "*"
+| where outcome = "FAILURE_DETECTED"
+| timeslice 1m
+| count by _timeslice
+| sort by _timeslice
+
+Returns: Time series of SAP failures (spike = systemic issue)
+
+=== QUERY 5: Find Flights Needing Specific Fix ===
+Use Case: "All flights with 'Invalid geometry' error need data fix"
+
+| where error_message matches "*Invalid geometry*"
+| json field=_raw "flightDetailId" as FlightDetailID nodrop
+| dedup FlightDetailID
+| fields FlightDetailID, s3_key, error_message
+
+Returns: List of FlightDetailIDs with data quality issues
+
+=== QUERY 6: Retry Pattern Analysis ===  
+Use Case: "Do retries actually help or waste time?"
+
+| where retry_count matches "*"
+| toLong(retry_count) as retry_num
+| where retry_num > 0
+| avg(retry_num) by pipeline_stage, outcome
+| sort by pipeline_stage
+
+Returns: Which stages benefit from retries vs which don't
+
+=== QUERY 7: Find Similar Failures ===
+Use Case: "FLT-00842 failed, show me all flights with same error"
+
+| where error_message = "Connection timeout after 5000ms"
+| json field=_raw "flightDetailId" as FlightDetailID nodrop
+| dedup FlightDetailID
+| count
+
+Returns: How many flights hit same root cause (systemic vs one-off)
+
+=== QUERY 8: QA Failure Correlation ===
+Use Case: "Which flights have async QA failures?"
+
+| where qa_result = "FAILED" OR validation_status = "failed"
+| json field=_raw "flightDetailId" as FlightDetailID nodrop
+| fields _messagetime, FlightDetailID, validation_errors
+| join (
+    | where message matches "*Ingestion complete*"
+    | json field=_raw "flightDetailId" as FlightDetailID nodrop
+    | fields FlightDetailID, ingestion_complete_time
+  ) on FlightDetailID
+
+Returns: Flights that passed ingestion but failed QA
+```
+
+---
+
+## Final Deliverable Structure
+
+```
+═══════════════════════════════════════════════════════════
+FLIGHT INGESTION TRACEABILITY REPORT
+Total Flights: [N] | Timespan: [start] → [end]
+═══════════════════════════════════════════════════════════
+
+📋 EXECUTIVE SUMMARY
+├─ Success Rate: [X]% ([N] flights)
+├─ Failure Rate: [Y]% ([M] flights)  
+├─ In DLQ: [Z] flights requiring manual intervention
+└─ Traceability: [X]% of events can be linked to FlightDetailID
+
+🔑 IDENTIFIER STRATEGY
+[Concise mapping - how to find FlightDetailID across variants]
+
+🛫 PIPELINE FLOW MAP
+[8-stage flow with durations, failure points marked]
+
+❌ FAILURE ANALYSIS  
+[Breakdown by stage, example traces, root cause signals]
+
+🔄 RETRY & DLQ INTELLIGENCE
+[Retry success rates, DLQ contents, recovery actions]
+
+🧪 QA PIPELINE FINDINGS
+[QA failure correlation, async issues detected]
+
+📦 WIDE EVENT DESIGN
+[What one perfect log event should contain]
+
+🎯 OPERATIONAL QUERIES
+[7-8 ready-to-use queries for daily operations]
+
+═══════════════════════════════════════════════════════════
+🚨 IMMEDIATE ACTIONS REQUIRED
+═══════════════════════════════════════════════════════════
+
+1. SAP Connectivity Investigation
+   └─ [N] flights failed with SAP timeout
+   └─ Check: SAP service health logs for [time window]
+   └─ Query: [paste specific query to find affected flights]
+
+2. DLQ Manual Review  
+   └─ [M] flights in DLQ
+   └─ Action: Inspect messages [list DLQ IDs]
+   └─ Query: [paste query to pull DLQ details]
+
+3. QA Pipeline Async Risk
+   └─ [X] flights passed but failed QA later
+   └─ Fix: Add QA synchronization before completion
+   └─ Query: [paste query to find false positives]
+
+═══════════════════════════════════════════════════════════
+```
+
+---
+
+**Key Principles Applied:**
+1. ✅ **Zero filtering** - all events analyzed with `nodrop`
+2. ✅ **Insights over queries** - show findings, queries support them
+3. ✅ **FlightDetailID traceability** - track every flight end-to-end
+4. ✅ **Exact failure location** - pinpoint which stage broke
+5. ✅ **Full context extraction** - all dimensions at failure point
+6. ✅ **Retry intelligence** - understand retry behavior and DLQ
+7. ✅ **Actionable** - specific queries for operations team
+8. ✅ **Start small** - examples use single flights, scale to 344 later
+
+Now analyze the actual logs and deliver this report.
