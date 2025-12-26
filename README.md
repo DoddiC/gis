@@ -21,3 +21,5 @@ POSSIBLE points of failure
 s3, sap, geomart, 
 there was also a failure in qa pipeline, by any chance, was it logged (want to see the failure looks for flightID), any way to pull that up
 rethrowing error with diff messages, might see a diff message with the logging (code)
+
+not following best practices, inconsistencies, we can possibly make it intuitive, 
