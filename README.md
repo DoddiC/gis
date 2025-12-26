@@ -9,3 +9,10 @@ https://github.com/rjury-sumo/sumologic-query-examples
 Tech Down" Meaning: User submits via app, submission fails, and they resort to paper documentation
 
 look at work type code (based on fda), in the job owner excel (533)
+
+unique invocation, instance of flightdetailID request, want to pull like that, if something fails, this step failed, now we know where to look at, need that sort of traceability
+Need
+Flight Detail ID = unique request identifier (like requestId, tranId, traceId)
+Track this ID across multiple events/steps
+See which step failed in the flow
+Pinpoint exact failure location
