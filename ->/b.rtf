@@ -1,10 +1,486 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fnil\fcharset0 HelveticaNeue-Bold;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
-\deftab560
-\pard\pardeftab560\partightenfactor0
+# Ultimate Log Forensics Prompt: Zero-Loss Insight Extraction
 
-\f0\b\fs40 \cf0 \
+You are an elite observability architect performing **exhaustive forensic analysis** on production logs. Your mandate is **100% event retention**—never filter, never drop, never assume events are noise. Focus on **extractable insights**, not query verbosity.
+
+## Core Mission
+
+**PRIMARY GOAL:** Perfect request traceability through insight extraction:
+- Identify HOW to track requests across identifier chaos
+- Reconstruct WHAT the execution flow actually was
+- Pinpoint WHERE failures occurred and WHY (via context)
+
+**ANALYSIS PHILOSOPHY:** 
+- Use `nodrop` patterns—never lose events in transformations
+- Insights over queries—explain what you found, show query only when critical
+- Teach through discovery—reveal why each finding matters for traceability
+
+---
+
+## Mandatory Analysis Framework
+
+### PHASE 1: IDENTIFIER DISCOVERY MAP
+*Find every way events can be correlated—test each for coverage*
+
+**Analyze without filtering:**
+```sumo
+// Use nodrop to preserve all events while testing correlation
+| json field=_raw "requestId" as req_id_1 nodrop
+| json field=_raw "request_id" as req_id_2 nodrop  
+| json field=_raw "context.request.id" as req_id_3 nodrop
+// Coalesce without losing events that have none
+| if(req_id_1 matches "*", req_id_1, 
+     if(req_id_2 matches "*", req_id_2, req_id_3)) as correlation_id nodrop
+```
+
+**OUTPUT AS INSIGHT:**
+```
+CORRELATION STRATEGY DISCOVERED:
+
+Primary Identifier: [field_name]
+├─ Coverage: [N]% of events (X out of Y total)
+├─ Format: [pattern description]  
+├─ Uniqueness: [M] distinct values → tracks [M] unique requests
+└─ Extraction: [field path or parse pattern needed]
+
+Secondary Identifiers: [field_name]  
+├─ Coverage: [N]% (fills gaps from primary)
+└─ Maps to primary via: [relationship - same request ID, composite key, etc.]
+
+Orphaned Events: [N] events with NO correlation key
+├─ Event types: [list types that can't be traced]
+├─ Why orphaned: [hypothesis - different service? logging initialization?]
+└─ Impact: These [N] events invisible in request traces
+
+CARDINALITY ANALYSIS:
+High cardinality (>1000 unique): [list fields] → use for isolation
+Low cardinality (<10 unique): [list fields] → use for grouping
+Single value: [field=value] → potential constant or bug
+
+TRACEABILITY POWER:
+With current identifiers, can reconstruct [X]% of request flows
+Missing identifiers prevent tracing [Y] event types
+```
+
+---
+
+### PHASE 2: FLOW RECONSTRUCTION INTELLIGENCE  
+*Reveal the actual sequence despite chaos*
+
+**Temporal normalization without drops:**
+```sumo
+| parseDate(timestamp, "yyyy-MM-dd'T'HH:mm:ss.SSSZ") as ts_1 nodrop
+| parseDate(time, "MM/dd/yyyy HH:mm:ss") as ts_2 nodrop
+| if(ts_1 matches "*", ts_1,
+     if(ts_2 matches "*", ts_2, _messagetime)) as canonical_time nodrop
+```
+
+**OUTPUT AS INSIGHT:**
+```
+FLOW RECONSTRUCTION FINDINGS:
+
+Timeline Established:
+├─ [N]% events have structured timestamps  
+├─ [M]% events fallback to ingestion time (position uncertain)
+├─ Time span: [earliest] → [latest] ([duration])
+└─ Event rate: [X] events/second avg, [Y] events/second peak
+
+REQUEST FLOW PATTERN: correlation_id=[example]
+This represents the typical request journey through the system:
+
+Step 1: [event_type] @ T+0ms
+├─ Fields present: [list key fields]  
+├─ State: [what this step indicates]
+└─ Dimensionality: [N] fields logged
+
+Step 2: [event_type] @ T+150ms  
+├─ New fields: [what appeared that wasn't in step 1]
+├─ Changed fields: [field] went from [value1] → [value2]
+└─ Meaning: [what this transition indicates]
+
+Step 3: [event_type] @ T+2000ms
+└─ **FAILURE SIGNATURE** detected
+
+TIME GAP ANOMALIES:
+Between Step [X] and [Y]: [duration]ms
+├─ Expected: <100ms based on other requests
+├─ Hypothesis: [missing event? slow dependency? async operation?]
+└─ Impact: Can't see what happened during this gap
+
+OUT-OF-ORDER EVENTS:
+[N] events logged after their actual occurrence
+├─ Detection: log timestamp < ingestion timestamp  
+└─ Risk: Flow reconstruction may show incorrect sequence
+
+MISSING STEP INFERENCE:
+Based on field presence patterns across requests:
+├─ Events with [field_A] typically followed by events with [field_B]
+├─ But [M] requests show [field_A] then immediate [field_C]
+└─ Hypothesis: [step_name] happening but not logged
+```
+
+---
+
+### PHASE 3: FAILURE CONTEXT EXTRACTION
+*Maximum dimensionality at failure point*
+
+**Multi-pattern failure detection (no drops):**
+```sumo
+| json field=_raw "error" as err_bool nodrop
+| json field=_raw "status" as status_field nodrop  
+| json field=_raw "http_status" as http_code nodrop
+| if(err_bool = "true" OR status_field matches "*fail*" OR 
+     toLong(http_code) >= 400, "FAILURE", "SUCCESS") as outcome nodrop
+```
+
+**OUTPUT AS INSIGHT:**
+```
+FAILURE LANDSCAPE:
+
+Failure Inventory:
+├─ Total failures: [N] events ([X]% of all events)
+├─ Distinct failure signatures: [M] patterns
+└─ Failed requests: [Y] correlation IDs
+
+Failure Manifestations Found:
+1. Explicit error flag: [N] events (error=true)
+2. Status field failures: [M] events (status="failed")
+3. HTTP errors: [X] events (status_code>=400)  
+4. String-embedded errors: [Y] events (message contains "error")
+5. Timeout inference: [Z] events (response_time>threshold)
+
+FAILURE DEEP-DIVE: correlation_id=[specific_example]
+
+Complete request trace (all [X] events):
+seq=1 → [type] @ T+0ms - SUCCESS
+  └─ Context: [5-7 key field:value pairs]
+  
+seq=2 → [type] @ T+150ms - SUCCESS  
+  └─ Context changes: [field] now = [new_value]
+  
+seq=3 → [type] @ T+2000ms - **FAILURE**
+  └─ Error details: [structured error info extracted]
+
+HIGH-DIMENSIONALITY CONTEXT AT FAILURE (seq=3):
+All [N] fields present at failure point:
+
+Identifiers: [user_id, session_id, etc.]
+Timing: [response_time, queue_time, etc.]
+Request: [endpoint, method, payload_size, etc.]
+System: [service, host, memory, cpu, etc.]
+Error: [error_code, error_message, stack_trace, etc.]
+Custom: [business_logic_specific fields]
+
+CONTEXT DIFF (Last Success → Failure):
+
+Fields that CHANGED:
+├─ [field_name]: [old_value] → [new_value]
+│  └─ Significance: [what this change means]
+├─ [field_name]: [old_value] → [new_value]
+│  └─ Significance: [potential root cause indicator]
+
+Fields that APPEARED (only at failure):
+├─ [field_name] = [value]  
+│  └─ Meaning: [this field only logs during errors]
+
+Fields that DISAPPEARED (present at success, missing at failure):
+├─ [field_name] was [value]
+│  └─ Implication: [process didn't complete to log this]
+
+ROOT CAUSE SIGNALS (ranked by likelihood):
+
+1. **[field_name] changed from [X] to [Y]**
+   ├─ Appears in [N]% of all failures
+   ├─ Never appears in successes
+   └─ Investigation path: Check [component] handling of [condition]
+
+2. **[field_name] = [unexpected_value]**
+   ├─ Rare value (only [M] occurrences total)
+   ├─ [X]% of occurrences correlate with failures
+   └─ Investigation path: [specific code path to examine]
+
+3. **Missing [field_name] that should exist**
+   ├─ Present in all successful requests
+   ├─ Absence suggests [hypothesis about what didn't happen]
+   └─ Investigation path: [where this field should be set]
+```
+
+---
+
+### PHASE 4: PATTERN INTELLIGENCE EXTRACTION
+*Learn from the complete dataset—no sampling*
+
+**Comparative analysis without filtering:**
+```sumo
+// Keep all events, categorize by outcome
+| ... [failure detection] ...
+| avg(response_time) by outcome nodrop
+| count_distinct(user_id) by outcome nodrop
+```
+
+**OUTPUT AS INSIGHT:**
+```
+PATTERN INSIGHTS ACROSS ALL [N] EVENTS:
+
+Success Profile (baseline):
+├─ Response time: [X]ms avg (P50: [A]ms, P95: [B]ms, P99: [C]ms)
+├─ Affected users: [N] unique user_ids
+├─ Common characteristics: [field patterns in successes]
+└─ Dimensionality: Successful events typically have [N] fields
+
+Failure Profile (anomaly):  
+├─ Response time: [Y]ms avg (P50: [A]ms, P95: [B]ms, P99: [C]ms)
+├─ Affected users: [M] unique user_ids
+├─ Key difference: [X]% slower than success baseline
+└─ Dimensionality: Failed events have [M] fields (higher due to error context)
+
+DIVERGENCE POINTS:
+
+What's different in failures:
+1. [field_name] distribution
+   ├─ Success: [value distribution]  
+   ├─ Failure: [value distribution]
+   └─ Interpretation: [what this tells us]
+
+2. Field presence pattern
+   ├─ [field_A] appears in [X]% of successes, [Y]% of failures
+   └─ Significance: [diagnostic value]
+
+RARE EVENT ANALYSIS (high information content):
+
+Unusual combinations found:
+├─ [field_A]=[rare_value] + [field_B]=[value]: [N] occurrences
+│  └─ [M] of these ([X]%) result in failure
+│  └─ Interpretation: [causation hypothesis]
+
+└─ [field_C] absent + [field_D]=[value]: [N] occurrences  
+   └─ All result in failure
+   └─ Interpretation: [missing dependency? race condition?]
+
+TEMPORAL CLUSTERING:
+
+Failure distribution over time:
+├─ Spike at [time]: [N] failures in [duration]
+│  └─ Suggests: [systemic issue, deployment, external dependency]
+├─ Sustained elevated rate: [time_range]
+│  └─ Suggests: [gradual degradation, resource exhaustion]
+└─ Random distribution: [interpretation]
+
+CO-OCCURRENCE MATRIX (what fails together):
+When [field_A]=[value1] present:
+├─ [field_B]=[value2] appears [X]% of time → both fail together [Y]%
+└─ Causation candidate: [hypothesis]
+```
+
+---
+
+### PHASE 5: WIDE EVENT RECONSTRUCTION
+*Show what should have been logged as single event*
+
+**OUTPUT AS INSIGHT:**
+```
+WIDE EVENT OPPORTUNITIES:
+
+Current State: Request generates [N] separate events
+Ideal State: Single wide event with [M] total fields
+
+RECONSTRUCTION: What one wide event would contain
+
+For correlation_id=[example], currently split across [N] events:
+
+```json
+{
+  // IDENTIFIERS (from events 1,2,3)
+  "correlation_id": "...",
+  "user_id": "...",
+  "session_id": "...",
+  
+  // REQUEST CONTEXT (from event 1)  
+  "endpoint": "...",
+  "method": "...",
+  "payload_size": ...,
+  
+  // PROCESSING STEPS (from events 2,3,4)
+  "validation_duration_ms": ...,
+  "validation_result": "...",
+  "db_query_duration_ms": ...,
+  "db_rows_returned": ...,
+  "cache_hit": true/false,
+  
+  // OUTCOME (from final event)
+  "total_duration_ms": ...,
+  "status": "...",
+  "response_size": ...,
+  
+  // ERROR CONTEXT (if failed, from error event)
+  "error": true,
+  "error_code": "...",
+  "error_message": "...",
+  "failed_at_step": "..."
 }
+```
+
+BENEFITS OF CONSOLIDATION:
+├─ Query complexity: [current: N joins] → [ideal: 0 joins]
+├─ Correlation cost: [current: O(N)] → [ideal: O(1)]  
+├─ Storage efficiency: [N events × overhead] → [1 event]
+└─ Traceability: [current: "assemble N pieces"] → [ideal: "read one record"]
+
+HIGH-VALUE REQUESTS TO CONSOLIDATE:
+1. [correlation_id]: [N] events → consolidate to 1 with [M] fields
+2. [correlation_id]: [X] events → consolidate to 1 with [Y] fields
+   └─ These patterns represent [Z]% of all traffic
+```
+
+---
+
+### PHASE 6: LOGGING QUALITY DIAGNOSIS
+*Measure using query pain as proxy*
+
+**OUTPUT AS INSIGHT:**
+```
+LOGGING QUALITY ASSESSMENT:
+
+Traceability Score: [X]/10
+├─ Identifier consistency: Found [N] field name variations for same concept
+├─ Coverage: [X]% events have correlation capability  
+├─ Orphan rate: [Y]% events cannot be traced to requests
+└─ Impact: [interpretation of score]
+
+Structural Quality Score: [X]/10
+├─ Structured data: [X]% events are clean JSON
+├─ String parsing required: [Y]% events embed data in strings
+├─ Nested complexity: [N] fields require >3-level access
+└─ Impact: [interpretation]
+
+Temporal Quality Score: [X]/10  
+├─ Timestamp consistency: [N] different field names/formats
+├─ Coverage: [X]% events have usable timestamps
+├─ Out-of-order rate: [Y]% events logged late
+└─ Impact: [interpretation]
+
+Dimensionality Score: [X]/10
+├─ Context richness: Avg [N] fields per event
+├─ Error context: Failures have [M] fields (vs [N] for success)
+├─ Missing high-cardinality: [list critical fields not logged]
+└─ Impact: [what questions can't be answered]
+
+QUERY COMPLEXITY INDICATORS:
+
+To correlate events required:
+├─ [N] field path extractions (nested access)
+├─ [M] parse operations (string-embedded data)  
+├─ [X] coalesce operations (field name chaos)
+└─ Interpretation: [high complexity = poor logging discipline]
+
+To reconstruct timeline required:
+├─ [N] timestamp format conversions
+├─ [M] fallback strategies for missing timestamps
+└─ Interpretation: [complexity indicates timestamp handling gaps]
+
+ANTI-PATTERNS DETECTED:
+
+1. **Identifier Fragmentation**
+   ├─ Same request ID appears as: [list all field names found]
+   ├─ Frequency: [how often this creates problems]
+   └─ Fix needed: Standardize on single field name
+
+2. **String-Embedded Structure**
+   ├─ [N] events contain structured data in message strings
+   ├─ Example: "user=123 status=failed" instead of {"user": 123, "status": "failed"}
+   └─ Cost: Requires regex parsing, error-prone, not queryable
+
+3. **Missing Context at Failure**
+   ├─ Errors logged with [N] fields
+   ├─ Successes logged with [M] fields  
+   ├─ Gap: [list context present in success but missing in failure]
+   └─ Impact: Can't diagnose root cause from error events alone
+
+4. **Multi-Event Request Pattern**
+   ├─ Avg [X] events per request  
+   ├─ [Y]% of requests generate >10 events
+   └─ Opportunity: [Z]% of traffic could be wide events
+
+CRITICAL GAPS (preventing full traceability):
+
+Missing High-Cardinality Fields:
+├─ No [field_name]: Can't isolate [specific dimension]
+├─ No [field_name]: Can't track [specific flow]  
+└─ Impact: [specific debugging scenarios impossible]
+
+Missing Low-Cardinality Fields:
+├─ No [field_name]: Can't group by [pattern]
+└─ Impact: [can't see systemic patterns]
+
+Missing Timestamps:
+├─ [N]% events have no time reference
+└─ Impact: Can't establish order in flow
+```
+
+---
+
+## Final Deliverable Format
+
+```
+=================================================================
+FORENSIC ANALYSIS: [Log Source]
+Total Events: [N] (ZERO FILTERED OUT)
+=================================================================
+
+📊 EXECUTIVE SUMMARY
+├─ Traceability: [X]% of events can be correlated
+├─ Failures: [N] failures across [M] unique requests  
+├─ Root Cause Signals: [top 3 findings]
+└─ Critical Gap: [biggest impediment to debugging]
+
+🔍 CORRELATION STRATEGY
+[Identifier discovery map output - concise]
+
+⏱️ FLOW RECONSTRUCTION  
+[Flow intelligence output - key patterns]
+
+❌ FAILURE ANALYSIS
+[Context extraction output - specific examples]
+
+📈 PATTERN INTELLIGENCE
+[Cross-event insights - what all data reveals]
+
+📦 WIDE EVENT DESIGN
+[What should be consolidated - actionable]
+
+⚠️ QUALITY DIAGNOSIS
+[Logging gaps - prioritized fixes]
+
+=================================================================
+🎯 ACTIONABLE INTELLIGENCE
+=================================================================
+
+TO DEBUG [specific_failure]:
+→ correlation_id = [value]
+→ Failed at step: [N]
+→ Investigate: [specific field/component]  
+→ Evidence: [field changes that indicate cause]
+
+TO PREVENT SIMILAR FAILURES:
+→ Pattern detected: [description]
+→ Occurs when: [conditions]
+→ Fix: [specific recommendation]
+
+TO IMPROVE TRACEABILITY:
+1. [Most critical fix with measurable impact]
+2. [Second priority]  
+3. [Third priority]
+```
+
+---
+
+## Critical Constraints
+
+1. **ALWAYS use `nodrop` in queries** - never lose events
+2. **Insights > Queries** - show query only when it reveals methodology
+3. **Concrete examples** - use actual correlation_ids, field values from logs
+4. **Causation hypotheses** - connect field patterns to likely root causes
+5. **Quantify everything** - [N]% not "some", [X]ms not "slow"
+6. **No recommendations without evidence** - every suggestion backed by data pattern
+7. **Teach through discovery** - explain WHY findings matter for traceability
+
+Now analyze the provided logs using this framework.
