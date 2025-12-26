@@ -357,3 +357,47 @@ _sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
 This directly maps to what Ibrahim explained: "If 14 out of 15 successful, status = invalid. If 15 out of 15, status = ingesting."
 
 Want me to refine this further based on other fields you're seeing in the logs?
+
+You're absolutely right - I'm being inefficient and potentially filtering out logs. Let me fix this properly:
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+| json field=_raw "message.batchStats.totalFiles" as total nodrop
+| json field=_raw "message.batchStats.successfullyProcessed" as success nodrop
+| json field=_raw "message.batchStats.invalid" as invalid nodrop
+| json field=_raw "message.flightDetailId" as flight_detail_id nodrop
+
+// Fallback to root level if message wrapper doesn't exist
+| if(isBlank(total), json field=_raw "batchStats.totalFiles", total) as total nodrop
+| if(isBlank(success), json field=_raw "batchStats.successfullyProcessed", success) as success nodrop
+| if(isBlank(invalid), json field=_raw "batchStats.invalid", invalid) as invalid nodrop
+| if(isBlank(flight_detail_id), json field=_raw "flightDetailId", flight_detail_id) as flight_detail_id nodrop
+
+// Only show logs that have batch stats AND have problems
+| where !isBlank(total) and (num(success) < num(total) or num(invalid) > 0)
+
+| fields flight_detail_id, total, success, invalid
+```
+
+Wait, that's still convoluted. Let me do this the **clean way**:
+
+```sumo
+_sourceCategory = OA/Sumo-Sherlock/*/be-ingestion-main
+
+// Extract from both possible locations in one go
+| parse regex field=_raw "\"totalFiles\":\s*(?<total>\d+)" nodrop
+| parse regex field=_raw "\"successfullyProcessed\":\s*(?<success>\d+)" nodrop
+| parse regex field=_raw "\"invalid\":\s*(?<invalid>\d+)" nodrop
+| parse regex field=_raw "\"flightDetailId\":\s*(?:\")?(?<flight_detail_id>[^,\"\}]+)" nodrop
+
+// Only show logs with batch stats that have problems
+| where !isBlank(total) and (num(success) < num(total) or num(invalid) > 0)
+
+| fields flight_detail_id, total, success, invalid
+| count by flight_detail_id
+```
+
+This uses regex parsing which **doesn't care about the JSON structure** - it just finds the values wherever they are in the raw log. No filtering, no double extraction, just get the data.
+
+Is this closer to what you want?
