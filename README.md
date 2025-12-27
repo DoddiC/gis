@@ -8,7 +8,7 @@ https://loggingsucks.com/?utm_source=tldrdev
 
 **Notes**
 
-Tech Down" Meaning: User submits via app, submission fails, and they resort to paper documentation
+Tech Down" Meaning: submission fails via app, and they resort to paper documentation (e.g manually entering into SAP, working with clerk or coordinator, crew_complete thing
 
 look at work type code (based on fda), in the job owner excel (533)
 
