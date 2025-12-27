@@ -19,6 +19,9 @@ Track this ID across multiple events/steps
 See which step failed in the flow
 Pinpoint exact failure location
 
+7 nodes in each AZ, 21 total; multi az, dr ha test
+
+**Other**
 
 not following best practices, inconsistencies, we can possibly make it intuitive, 
 
