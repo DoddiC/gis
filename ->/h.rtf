@@ -1,1 +1,36 @@
 
+Ah! You're right - let me recheck the images more carefully.
+
+Looking back at the logs, I can see messages indicating **"document is already queued"** - this is the actual issue, not just a 203 status code concern.
+
+## Corrected Analysis: Document Already Queued
+
+**Actual Issue:** The Lambda is attempting to process workorder documents that are **already in the queue/processing pipeline**, resulting in duplicate processing attempts.
+
+**What's Happening:**
+1. A workorder document gets added to the SQS queue
+2. Lambda picks it up and starts processing
+3. The GIS API responds that this document is already queued for processing
+4. This likely returns the 203 status as a "non-authoritative" response indicating "I see your request, but it's already being handled"
+
+**Root Cause Possibilities in QA:**
+- **Duplicate SQS Messages** - Message being delivered multiple times from the queue
+- **Retry Logic Issue** - Lambda retrying failed attempts, but the first attempt actually succeeded
+- **Race Condition** - Multiple Lambda instances processing the same message simultaneously
+- **Missing Deduplication** - SQS FIFO queue deduplication not configured properly
+- **Idempotency Problem** - No check to see if document was already submitted before sending to GIS API
+
+**Investigation Steps:**
+1. Check SQS queue configuration - is it FIFO with deduplication enabled?
+2. Review Lambda concurrency settings - are multiple instances processing the same message?
+3. Check CloudWatch logs for duplicate `messageId` entries
+4. Verify if the Lambda deletes messages from queue only after successful processing
+5. Look for the same workorder ID appearing multiple times in the logs
+
+**Summary for Team:**
+- **Issue**: Documents being submitted to GIS API that are already queued/processing
+- **Environment**: QA
+- **Impact**: Potential duplicate processing, wasted Lambda invocations
+- **Status Code**: 203 appears to be GIS API's way of saying "already have it"
+
+Does this match what you're seeing in the full logs?
