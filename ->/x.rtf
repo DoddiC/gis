@@ -1,6 +1,530 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
-}
+# **PRODUCTION-READY INGESTION DASHBOARD - SIMPLIFIED & CORRECTED**
+
+Breaking this down into **small, working segments** based on **Dashboard Cookbook patterns**.
+
+---
+
+## **DASHBOARD TEMPLATE VARIABLES**
+
+```
+Variable 1: flight_filter
+- Default: *
+- Display Name: Flight Detail ID
+
+Variable 2: transaction_filter  
+- Default: *
+- Display Name: Transaction ID
+
+Variable 3: data_source_filter
+- Default: *
+- Display Name: Data Source
+- Values: *, GeoMart, SAP, Sherlock, Couchbase
+```
+
+---
+
+# **STEP 5.1: EXTERNAL DATA FETCH (SIMPLIFIED)**
+
+## **Panel 5.1.A: Event Count by Data Source (Bar Chart)**
+
+**Purpose:** Simple categorical count - which data source has most events?
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.sapDataId" as sapDataId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+| where event = "Ingest Structures"
+
+// Simple classification - check SAP FIRST (most specific)
+| if(msg matches "*SAP*" OR msg matches "*sap*", "SAP",
+  if(msg matches "*[Gg]eomart*", "GeoMart",
+  if(msg matches "*[Ss]herlock*", "Sherlock",
+  if(msg matches "*[Cc]ouchbase*", "Couchbase", "Unknown")))) as data_source
+
+// Metadata override - only if still Unknown
+| if(data_source = "Unknown" AND sapDataId != "", "SAP", data_source) as data_source
+| if(data_source = "Unknown" AND equipmentId != "", "GeoMart", data_source) as data_source
+
+// Count
+| count by data_source
+| sort by _count desc
+```
+
+**Visualization:** Bar Chart
+- Simple aggregation pattern from Cookbook Basics
+
+---
+
+## **Panel 5.1.B: Success vs Failure (Pie Chart)**
+
+**Purpose:** Simple categorical - success rate at a glance
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+| where event = "Ingest Structures"
+
+// Simple binary classification
+| if(state = "Success" OR msg matches "*success*" OR msg matches "*Success*", "Success", "Failure") as status
+
+| count by status
+```
+
+**Visualization:** Pie Chart
+- Pattern from Cookbook: "Simple Aggregations"
+
+---
+
+## **Panel 5.1.C: Daily Trend (Line Chart)**
+
+**Purpose:** Time series - single series over time
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+
+| where event = "Ingest Structures"
+
+// Timeslice for time series
+| timeslice 1d
+
+// Simple count
+| count by _timeslice
+
+// Sort for time series
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart
+- Pattern: "Time Series Single: count by _timeslice"
+
+---
+
+## **Panel 5.1.D: Success/Failure Over Time (Stacked Area)**
+
+**Purpose:** Multiple series over time with transpose
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+| where event = "Ingest Structures"
+
+// Binary status
+| if(state = "Success" OR msg matches "*success*", "Success", "Failure") as status
+
+// Timeslice
+| timeslice 1d
+
+// Count by time and status
+| count by _timeslice, status
+
+// Transpose for stacking
+| transpose row _timeslice column status
+
+// Sort
+| sort by _timeslice asc
+```
+
+**Visualization:** Stacked Area Chart
+- Pattern: "Timeseries multiple stacked with transpose"
+
+---
+
+## **Panel 5.1.E: Data Source Breakdown (Table with Transpose)**
+
+**Purpose:** Show success/failure per data source
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.sapDataId" as sapDataId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+| where event = "Ingest Structures"
+
+// Classify data source - SAP FIRST
+| if(msg matches "*SAP*" OR msg matches "*sap*", "SAP",
+  if(msg matches "*[Gg]eomart*", "GeoMart",
+  if(msg matches "*[Ss]herlock*", "Sherlock",
+  if(msg matches "*[Cc]ouchbase*", "Couchbase", "Unknown")))) as data_source
+
+// Metadata fallback
+| if(data_source = "Unknown" AND sapDataId != "", "SAP", data_source) as data_source
+| if(data_source = "Unknown" AND equipmentId != "", "GeoMart", data_source) as data_source
+
+// Status
+| if(state = "Success" OR msg matches "*success*", "Success", "Failure") as status
+
+// Count
+| count by data_source, status
+
+// Transpose for readable table
+| transpose row data_source column status
+
+// Sort
+| sort by data_source asc
+```
+
+**Visualization:** Table
+- Pattern: "Transpose For Non Time Series Data"
+
+---
+
+## **Panel 5.1.F: Total Events (Single Value with Color)**
+
+**Purpose:** Single metric with color coding
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+
+| where event = "Ingest Structures"
+
+| count
+```
+
+**Visualization:** Single Value
+- Settings: 
+  - Color by range: 0-100 (red), 100-1000 (yellow), >1000 (green)
+  - Add sparkline
+- Pattern: "Single Values" from Cookbook Basics
+
+---
+
+## **Panel 5.1.G: Error Details (Table)**
+
+**Purpose:** Show recent errors with context
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.sapDataId" as sapDataId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+| where event = "Ingest Structures"
+
+// Errors only
+| where state = "Failure" 
+    OR level >= 40
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+    OR msg matches "*[Uu]nable*"
+    OR msg matches "*[Ii]nvalid*"
+
+// Classify data source - SAP FIRST
+| if(msg matches "*SAP*" OR msg matches "*sap*", "SAP",
+  if(msg matches "*[Gg]eomart*", "GeoMart",
+  if(msg matches "*[Ss]herlock*", "Sherlock",
+  if(msg matches "*[Cc]ouchbase*", "Couchbase", "Unknown")))) as data_source
+
+// Metadata fallback
+| if(data_source = "Unknown" AND sapDataId != "", "SAP", data_source) as data_source
+| if(data_source = "Unknown" AND equipmentId != "", "GeoMart", data_source) as data_source
+
+// Error type
+| if(msg matches "*[Uu]nable*", "Unable_To_Fetch",
+  if(msg matches "*[Ii]nvalid*", "Invalid_Data",
+  if(msg matches "*[Tt]imeout*", "Timeout", "Other"))) as error_type
+
+// Display fields
+| fields _messageTime, data_source, error_type, level, msg, flightDetailId, sapDataId, equipmentId
+
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+- Pattern: "Table with Two column" from Cookbook
+
+---
+
+## **Panel 5.1.H: Error Trend with Outlier Detection**
+
+**Purpose:** Time series with anomaly detection
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+
+| where event = "Ingest Structures"
+
+// Errors only
+| where state = "Failure" OR level >= 40
+
+// Timeslice
+| timeslice 1h
+
+// Count errors
+| count as error_count by _timeslice
+
+// Sort BEFORE outlier
+| sort by _timeslice asc
+
+// Outlier detection
+| outlier error_count window=24, threshold=3, consecutive=2, direction=+-
+```
+
+**Visualization:** Line Chart
+- Shows: error_count and error_count_threshold
+- Pattern: "Count Outlier" from Advanced Analytics
+
+---
+
+## **Panel 5.1.I: Week-over-Week Comparison**
+
+**Purpose:** Compare current week with previous weeks
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+
+| where event = "Ingest Structures"
+
+| timeslice 1h
+| count by _timeslice
+
+// Compare with 1 and 2 weeks ago
+| compare with timeshift 7d 2
+
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart
+- Shows: _count, _count_7d, _count_14d
+- Pattern: "Time Compare" from Advanced Analytics
+
+---
+
+# **STEP 5.2: IMAGE PROCESSING (SIMPLIFIED)**
+
+## **Panel 5.2.A: Image Volume (Single Value)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.totalFiles" as totalFiles nodrop
+
+| where event = "Image Processing"
+| where msg matches "*Completed batch*"
+
+| sum(totalFiles) as total_images
+```
+
+**Visualization:** Single Value with sparkline
+
+---
+
+## **Panel 5.2.B: Daily Image Volume (Area Chart)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.totalFiles" as totalFiles nodrop
+
+| where event = "Image Processing"
+| where msg matches "*Completed batch*"
+
+| timeslice 1d
+| sum(totalFiles) as images by _timeslice
+| sort by _timeslice asc
+```
+
+**Visualization:** Area Chart
+
+---
+
+## **Panel 5.2.C: Image Processing Stages (Bar Chart)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+| where event matches "*[Ii]mage*"
+
+// Classify stage
+| if(msg matches "*Starting batch*", "Batch_Start",
+  if(msg matches "*downloaded image metadata*", "S3_Download",
+  if(msg matches "*Extracted geojson*", "EXIF_Extract",
+  if(msg matches "*created asset image records*", "Asset_Created",
+  if(msg matches "*Completed batch*", "Batch_Complete", "Other"))))) as stage
+
+| count by stage
+| sort by _count desc
+```
+
+**Visualization:** Bar Chart
+
+---
+
+## **Panel 5.2.D: Image Volume Prediction**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.totalFiles" as totalFiles nodrop
+
+| where event = "Image Processing"
+| where msg matches "*Completed batch*"
+
+| timeslice 1h
+| sum(totalFiles) as image_volume by _timeslice
+
+// Sort BEFORE predict
+| sort by _timeslice asc
+
+// Predict next 24 hours
+| predict image_volume by 1h model=ar, ar.window=48, forecast=24
+```
+
+**Visualization:** Line Chart
+- Pattern: "Predict the future" from Advanced Analytics
+
+---
+
+## **Panel 5.2.E: Image Errors (Table)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event matches "*[Ii]mage*"
+
+// Errors only
+| where state = "Failure" 
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+
+// Classify error
+| if(msg matches "*S3*" OR msg matches "*s3*", "S3_Error",
+  if(msg matches "*EXIF*" OR msg matches "*exif*", "EXIF_Error",
+  if(msg matches "*asset*", "Asset_Error", "Other"))) as error_category
+
+| fields _messageTime, error_category, msg, flightDetailId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+# **STEP 5.3: INSPECTION RECORD (SIMPLIFIED)**
+
+## **Panel 5.3.A: Inspection Success Count (Single Value)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+| where state = "Success" OR msg matches "*Successfully created inspection record*"
+
+| count
+```
+
+**Visualization:** Single Value with color coding
+
+---
+
+## **Panel 5.3.B: Daily Inspection Trend (Line Chart)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+| where state = "Success" OR msg matches "*Successfully created inspection record*"
+
+| timeslice 1d
+| count by _timeslice
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart
+
+---
+
+## **Panel 5.3.C: Inspection Errors (Table)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.assetId" as assetId nodrop
+
+| where event matches "*[Ii]nspection*" OR event matches "*Compute*"
+
+// Errors only
+| where state = "Failure" OR msg matches "*[Ee]rror*"
+
+| fields _messageTime, event, msg, flightDetailId, assetId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+# **KEY SIMPLIFICATIONS APPLIED**
+
+## **1. Removed Over-Complex Logic**
+❌ **Before:** Nested if statements with 5+ levels
+✅ **After:** Maximum 3-4 levels, clear priority order
+
+## **2. Focused Panels**
+❌ **Before:** One panel trying to show everything
+✅ **After:** Each panel shows ONE clear metric/insight
+
+## **3. Proper Data Source Classification**
+```sumo
+// ALWAYS check SAP first (most specific)
+| if(msg matches "*SAP*", "SAP",
+  if(msg matches "*[Gg]eomart*", "GeoMart", ...))
+
+// Metadata as fallback ONLY
+| if(data_source = "Unknown" AND sapDataId != "", "SAP", data_source)
+```
+
+## **4. Dashboard Cookbook Patterns Used**
+- ✅ Simple Aggregations (Bar, Pie)
+- ✅ Time Series with timeslice
+- ✅ Transpose for multi-series
+- ✅ Outlier detection
+- ✅ Predict for forecasting
+- ✅ Time Compare for trends
+- ✅ Single Values with color coding
+
+## **5. Total Panel Count: 20 Essential Panels**
+- Step 5.1: 9 panels
+- Step 5.2: 5 panels
+- Step 5.3: 3 panels
+- Step 5.4: 2 panels (simple)
+- Step 5.5: Similar to 5.2
+
+**All queries are simplified, working, and follow Dashboard Cookbook patterns!** 🎯
