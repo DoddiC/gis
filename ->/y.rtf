@@ -1,6 +1,461 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
-}
+# **PRODUCTION INGESTION DASHBOARD - SIMPLIFIED & ACTIONABLE**
+
+**Goal:** Track data ingestion pipeline health with clear success/failure states and actionable metrics.
+
+---
+
+## **DASHBOARD LAYOUT**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Row 1: OVERALL HEALTH (Single Values with Color Coding)   │
+├─────────────────────────────────────────────────────────────┤
+│  Row 2: PIPELINE STAGES (Sankey Flow Diagram)              │
+├─────────────────────────────────────────────────────────────┤
+│  Row 3: EXTERNAL DATA FETCH (5.1) - Visual + Metrics       │
+├─────────────────────────────────────────────────────────────┤
+│  Row 4: IMAGE PROCESSING (5.2) - Visual + Metrics          │
+├─────────────────────────────────────────────────────────────┤
+│  Row 5: INSPECTION RECORDS (5.3) - Visual + Metrics        │
+├─────────────────────────────────────────────────────────────┤
+│  Row 6: ERROR DETAILS & RECENT FAILURES (Tables)           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## **TEMPLATE VARIABLES**
+
+```
+Variable 1: flight_filter
+- Default: *
+- Display Name: Flight Detail ID
+
+Variable 2: time_range
+- Default: -1h
+- Display Name: Time Range
+- Values: -15m, -1h, -6h, -24h, -7d
+```
+
+---
+
+# **ROW 1: OVERALL HEALTH METRICS**
+
+## **Panel 1.1: Total Ingestion Events (Single Value)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| where event = "Ingest Structures"
+
+| count
+```
+
+**Visualization:** Single Value
+- Color: 0-100 (red), 100-500 (yellow), >500 (green)
+- Add sparkline
+
+---
+
+## **Panel 1.2: Success Rate (Single Value with Emoji)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+| where event = "Ingest Structures"
+
+// Status
+| if(state = "Success" OR msg matches "*[Ss]uccess*", "Success", "Failure") as status
+
+| count by status
+| sum(_count) as total
+| transpose column status
+| if(isNull(Success), 0, Success) as Success
+| if(isNull(Failure), 0, Failure) as Failure
+| (Success / (Success + Failure)) * 100 as success_pct
+| fields success_pct
+```
+
+**Visualization:** Single Value
+- Format: `##.#%`
+- Color: <90 (red), 90-95 (yellow), >95 (green)
+- Add emoji based on range: ❌ (<90), ⚠️ (90-95), ✅ (>95)
+
+---
+
+## **Panel 1.3: Active Failures (Single Value)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.level" as level nodrop
+
+| where event = "Ingest Structures"
+| where state = "Failure" 
+    OR level >= 40
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+
+| count
+```
+
+**Visualization:** Single Value
+- Color: 0 (green), 1-5 (yellow), >5 (red)
+
+---
+
+# **ROW 2: PIPELINE FLOW VISUALIZATION**
+
+## **Panel 2.1: Ingestion Pipeline Flow (Sankey Diagram)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Ingest Structures"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Stage classification based on final success messages
+| if(msg matches "*Geomart asset data fetch success*", "1_Geomart_Complete", 
+  if(msg matches "*Response pulling workorders from sherlock*", "1_Sherlock_Complete",
+  if(msg matches "*Response pulling workorders from couchbase*", "1_Couchbase_Complete",
+  if(msg matches "*Successfully downloaded image metadata from S3*", "2_S3_Download_Complete",
+  if(msg matches "*Extracted geojson from image EXIF metadata*", "3_EXIF_Complete",
+  if(msg matches "*Successfully created asset image records*", "4_Asset_Images_Complete",
+  if(msg matches "*Successfully created inspection record*", "5_Inspection_Complete",
+  if(msg matches "*Successfully created map images*", "6_Map_Images_Complete",
+  if(msg matches "*Successfully sent*image*for processing*", "7_Batch_Complete",
+  if(msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*", "ERROR", "In_Progress")))))))))) as stage
+
+| where stage != "In_Progress"
+
+// Create flow pairs
+| if(stage = "1_Geomart_Complete", "Start", "1_Geomart_Complete") as fromstate
+| if(stage = "1_Sherlock_Complete", "Start", "1_Sherlock_Complete") as fromstate
+| if(stage = "1_Couchbase_Complete", "Start", "1_Couchbase_Complete") as fromstate
+| if(stage = "2_S3_Download_Complete", "1_External_Data", "2_S3_Download_Complete") as fromstate
+| if(stage = "3_EXIF_Complete", "2_S3_Download_Complete", "3_EXIF_Complete") as fromstate
+| if(stage = "4_Asset_Images_Complete", "3_EXIF_Complete", "4_Asset_Images_Complete") as fromstate
+| if(stage = "5_Inspection_Complete", "4_Asset_Images_Complete", "5_Inspection_Complete") as fromstate
+| if(stage = "6_Map_Images_Complete", "5_Inspection_Complete", "6_Map_Images_Complete") as fromstate
+| if(stage = "7_Batch_Complete", "6_Map_Images_Complete", "7_Batch_Complete") as fromstate
+| stage as tostate
+
+| count by fromstate, tostate
+```
+
+**Visualization:** Sankey Diagram
+- Shows flow from Start → External Data → Image Processing → Inspection → Complete
+
+---
+
+# **ROW 3: EXTERNAL DATA FETCH (5.1)**
+
+## **Panel 3.1: External Data Sources - Success vs Failure (Stacked Area)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Ingest Structures"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Classify by FINAL success messages
+| if(msg matches "*Geomart asset data fetch success*", "GeoMart", 
+  if(msg matches "*Response pulling workorders from sherlock*", "Sherlock",
+  if(msg matches "*Response pulling workorders from couchbase*", "Couchbase",
+  if(msg matches "*Error fetching data from Geomart*", "GeoMart",
+  if(msg matches "*sherlock*" AND (msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"), "Sherlock",
+  if(msg matches "*couchbase*" AND (msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"), "Couchbase", "Unknown")))))) as data_source
+
+| where data_source != "Unknown"
+
+// Status
+| if(state = "Success" OR msg matches "*success*", "Success", "Failure") as status
+
+| timeslice 1h
+| count by _timeslice, data_source, status
+| concat(data_source, "_", status) as series
+| transpose row _timeslice column series
+
+| sort by _timeslice asc
+```
+
+**Visualization:** Stacked Area Chart
+- Series: GeoMart_Success, GeoMart_Failure, Sherlock_Success, Sherlock_Failure, Couchbase_Success, Couchbase_Failure
+
+---
+
+## **Panel 3.2: External Data Metrics (Table)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Ingest Structures"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Classify by FINAL success messages
+| if(msg matches "*Geomart asset data fetch success*", "GeoMart", 
+  if(msg matches "*Response pulling workorders from sherlock*", "Sherlock",
+  if(msg matches "*Response pulling workorders from couchbase*", "Couchbase",
+  if(msg matches "*Error fetching data from Geomart*", "GeoMart",
+  if(msg matches "*sherlock*" AND (msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"), "Sherlock",
+  if(msg matches "*couchbase*" AND (msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"), "Couchbase", "Unknown")))))) as data_source
+
+| where data_source != "Unknown"
+
+// Status
+| if(state = "Success" OR msg matches "*success*", 1, 0) as success
+| if(state = "Failure" OR msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*", 1, 0) as failure
+
+| sum(success) as total_success, sum(failure) as total_failure by data_source
+| total_success + total_failure as total
+| (total_success / total) * 100 as success_rate
+| fields data_source, total, total_success, total_failure, success_rate
+
+| sort by data_source asc
+```
+
+**Visualization:** Table
+- Columns: Data Source, Total, Success, Failure, Success Rate (%)
+
+---
+
+# **ROW 4: IMAGE PROCESSING (5.2)**
+
+## **Panel 4.1: Image Processing Stages (Stacked Bar)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event matches "*[Ii]mage*"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Classify by FINAL success messages
+| if(msg matches "*Successfully downloaded image metadata from S3*", "S3_Download", 
+  if(msg matches "*Extracted geojson from image EXIF metadata*", "EXIF_Extract",
+  if(msg matches "*Successfully created asset image records*", "Asset_Created",
+  if(msg matches "*Completed batch image processing*", "Batch_Complete", "Other")))) as stage
+
+| where stage != "Other"
+
+| timeslice 1h
+| count by _timeslice, stage
+| transpose row _timeslice column stage
+
+| sort by _timeslice asc
+```
+
+**Visualization:** Stacked Bar Chart
+
+---
+
+## **Panel 4.2: Image Volume Processed (Area with Prediction)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.totalFiles" as totalFiles nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Image Processing"
+| where msg matches "*Completed batch*"
+| where flightDetailId matches "{{flight_filter}}"
+
+| timeslice 1h
+| sum(totalFiles) as image_volume by _timeslice
+
+| sort by _timeslice asc
+
+// Predict next 6 hours
+| predict image_volume by 1h model=ar, ar.window=24, forecast=6
+```
+
+**Visualization:** Area Chart with Prediction Line
+- Series: image_volume, Prediction
+
+---
+
+## **Panel 4.3: Image Processing Metrics (Table)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.totalFiles" as totalFiles nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Image Processing"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Stage
+| if(msg matches "*Successfully downloaded image metadata from S3*", "S3_Download", 
+  if(msg matches "*Extracted geojson from image EXIF metadata*", "EXIF_Extract",
+  if(msg matches "*Successfully created asset image records*", "Asset_Created",
+  if(msg matches "*Completed batch*", "Batch_Complete", "Other")))) as stage
+
+| count by stage
+| fields stage, _count as count
+| sort by count desc
+```
+
+**Visualization:** Table
+
+---
+
+# **ROW 5: INSPECTION RECORDS (5.3)**
+
+## **Panel 5.1: Inspection Record Creation (Line Chart)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where state = "Success" OR msg matches "*Successfully created inspection record*"
+| where flightDetailId matches "{{flight_filter}}"
+
+| timeslice 1h
+| count by _timeslice
+
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart
+
+---
+
+## **Panel 5.2: Inspection Summary (Single Value)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where state = "Success" OR msg matches "*Successfully created inspection record*"
+| where flightDetailId matches "{{flight_filter}}"
+
+| count
+```
+
+**Visualization:** Single Value with Color Coding
+
+---
+
+# **ROW 6: ERROR TRACKING**
+
+## **Panel 6.1: Recent Errors (Table with Context)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Ingest Structures"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Errors only
+| where state = "Failure" 
+    OR level >= 40
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+    OR msg matches "*[Uu]nable*"
+
+// Classify stage
+| if(msg matches "*[Gg]eomart*", "GeoMart_Fetch",
+  if(msg matches "*[Ss]herlock*", "Sherlock_Fetch",
+  if(msg matches "*[Cc]ouchbase*", "Couchbase_Fetch",
+  if(msg matches "*S3*" OR msg matches "*s3*", "S3_Download",
+  if(msg matches "*EXIF*", "EXIF_Extract",
+  if(msg matches "*asset*", "Asset_Creation",
+  if(msg matches "*inspection*", "Inspection_Creation", "Other"))))))) as stage
+
+// Error type
+| if(msg matches "*[Uu]nable*", "Unable_To_Fetch",
+  if(msg matches "*[Tt]imeout*", "Timeout",
+  if(msg matches "*[Ii]nvalid*", "Invalid_Data", "Other_Error"))) as error_type
+
+| fields _messageTime, stage, error_type, level, msg, flightDetailId
+
+| sort by _messageTime desc
+| limit 50
+
+| formatDate(_messageTime, "MM-dd HH:mm:ss") as timestamp
+| fields timestamp, stage, error_type, msg, flightDetailId
+```
+
+**Visualization:** Table
+
+---
+
+## **Panel 6.2: Error Distribution (Bar Chart)**
+
+```sumo
+_sourceCategory=Prod/Sumo-Scheduled-Tasks-production
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+| where event = "Ingest Structures"
+| where flightDetailId matches "{{flight_filter}}"
+
+// Errors only
+| where state = "Failure" 
+    OR level >= 40
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+
+// Classify stage
+| if(msg matches "*[Gg]eomart*", "GeoMart",
+  if(msg matches "*[Ss]herlock*", "Sherlock",
+  if(msg matches "*[Cc]ouchbase*", "Couchbase",
+  if(msg matches "*S3*", "S3_Download",
+  if(msg matches "*EXIF*", "EXIF_Extract",
+  if(msg matches "*asset*", "Asset_Creation",
+  if(msg matches "*inspection*", "Inspection", "Other"))))))) as stage
+
+| count by stage
+| sort by _count desc
+```
+
+**Visualization:** Horizontal Bar Chart
+
+---
+
+## **KEY IMPROVEMENTS FROM ORIGINAL**
+
+✅ **Focused on final/success messages** - No confusion about intermediate states  
+✅ **Clear visual + metrics separation** - Left side visual, right side aggregate numbers  
+✅ **Actionable error tracking** - Stage + Error Type classification  
+✅ **Sankey flow diagram** - Shows complete pipeline journey  
+✅ **Prediction for capacity planning** - Image volume forecasting  
+✅ **Color-coded health metrics** - Instant status understanding  
+✅ **Simplified data source logic** - Check final success messages first  
+✅ **Template variables** - Filter by flight or time range  
+
+**Total Panels: 14 Essential Panels (vs 20+ in original)**
