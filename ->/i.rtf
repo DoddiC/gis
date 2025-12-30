@@ -1,6 +1,429 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
-}
+# Counting Field Occurrences by Event Name in Sumo Logic
+
+## Quick Answer (TL;DR)
+```
+| parse "event=* field=*" as event_name, field_value
+| count by event_name, field_value
+```
+
+---
+
+## Detailed Solutions (5 Common Scenarios)
+
+### Scenario 1: Count Specific Field Values Per Event
+**Use Case**: "How many times does each status appear in login events vs logout events?"
+
+```
+_sourceCategory=application
+| parse "event=* status=*" as event_name, status
+| count by event_name, status
+```
+
+**Output**:
+```
+event_name  | status  | _count
+login       | success | 1250
+login       | failed  | 45
+logout      | success | 1180
+logout      | failed  | 12
+```
+
+---
+
+### Scenario 2: Count Unique Field Values Per Event
+**Use Case**: "How many unique users triggered each event type?"
+
+```
+_sourceCategory=application
+| parse "event=* user=*" as event_name, user
+| count_distinct(user) by event_name
+```
+
+**Output**:
+```
+event_name        | _count_distinct
+page_view         | 5420
+add_to_cart       | 1230
+purchase          | 450
+```
+
+---
+
+### Scenario 3: Count Field Occurrences with Filter
+**Use Case**: "Count error codes only for failed events"
+
+```
+_sourceCategory=application
+| parse "event=* status=* error_code=*" as event_name, status, error_code
+| where status = "failed"
+| count by event_name, error_code
+| sort by _count desc
+```
+
+**Output**:
+```
+event_name  | error_code | _count
+login       | 401        | 120
+api_call    | 503        | 85
+payment     | 500        | 42
+```
+
+---
+
+### Scenario 4: Count with Time Bucketing
+**Use Case**: "Track field occurrences per event over time"
+
+```
+_sourceCategory=application
+| parse "event=* field=*" as event_name, field_value
+| timeslice 1h
+| count by _timeslice, event_name, field_value
+| transpose row _timeslice column event_name
+```
+
+**Output** (pivoted by hour):
+```
+_timeslice    | login_success | login_failed | logout_success
+2024-01-01 10 | 450          | 12           | 430
+2024-01-01 11 | 520          | 8            | 510
+```
+
+---
+
+### Scenario 5: Count Most Frequent Field Values Per Event
+**Use Case**: "What are the top 5 error messages for each event type?"
+
+```
+_sourceCategory=application
+| parse "event=* error_message=*" as event_name, error_msg
+| count_frequent(error_msg) by event_name
+| topk(5, _count) by event_name
+```
+
+**Output**:
+```
+event_name | error_msg                    | _count
+api_call   | Connection timeout           | 340
+api_call   | Invalid credentials          | 210
+api_call   | Rate limit exceeded          | 185
+payment    | Card declined                | 95
+payment    | Insufficient funds           | 67
+```
+
+---
+
+## Advanced Patterns
+
+### Pattern 1: Nested Grouping with Percentages
+**Use Case**: "Show percentage distribution of field values within each event"
+
+```
+_sourceCategory=application
+| parse "event=* status=*" as event_name, status
+| count by event_name, status
+| total _count as total_per_event by event_name
+| (_count / total_per_event) * 100 as percentage
+| fields event_name, status, _count, percentage
+| sort by event_name, percentage desc
+```
+
+**Output**:
+```
+event_name | status  | _count | percentage
+login      | success | 1250   | 96.5%
+login      | failed  | 45     | 3.5%
+logout     | success | 1180   | 99.0%
+logout     | failed  | 12     | 1.0%
+```
+
+---
+
+### Pattern 2: Compare Field Occurrence Across Event Types
+**Use Case**: "Which event has the most occurrences of a specific field value?"
+
+```
+_sourceCategory=application
+| parse "event=* error_type=*" as event_name, error_type
+| where error_type = "timeout"
+| count by event_name
+| sort by _count desc
+| limit 10
+```
+
+**Output**:
+```
+event_name     | _count
+database_query | 450
+api_call       | 320
+file_upload    | 180
+```
+
+---
+
+### Pattern 3: Multi-Field Aggregation
+**Use Case**: "Count combinations of multiple fields per event"
+
+```
+_sourceCategory=application
+| parse "event=* region=* device=*" as event_name, region, device
+| count by event_name, region, device
+| sort by event_name, _count desc
+```
+
+**Output**:
+```
+event_name | region | device  | _count
+login      | us-east| mobile  | 5200
+login      | us-east| desktop | 3400
+login      | eu-west| mobile  | 2100
+purchase   | us-east| desktop | 890
+```
+
+---
+
+### Pattern 4: Conditional Counting
+**Use Case**: "Count field occurrences, but categorize values"
+
+```
+_sourceCategory=application
+| parse "event=* response_time=*" as event_name, resp_time
+| if(toInt(resp_time) < 100, "fast",
+     if(toInt(resp_time) < 500, "medium", "slow")) as speed_category
+| count by event_name, speed_category
+```
+
+**Output**:
+```
+event_name | speed_category | _count
+api_call   | fast          | 8500
+api_call   | medium        | 1200
+api_call   | slow          | 300
+page_load  | fast          | 6200
+page_load  | medium        | 2100
+page_load  | slow          | 700
+```
+
+---
+
+### Pattern 5: Ratio Analysis
+**Use Case**: "Calculate success/failure ratio per event"
+
+```
+_sourceCategory=application
+| parse "event=* status=*" as event_name, status
+| count by event_name, status
+| transpose row event_name column status
+| success / (success + failed) as success_rate
+| fields event_name, success, failed, success_rate
+```
+
+**Output**:
+```
+event_name | success | failed | success_rate
+login      | 1250    | 45     | 0.965
+payment    | 890     | 110    | 0.890
+api_call   | 15600   | 400    | 0.975
+```
+
+---
+
+## Parsing Strategies for Different Log Formats
+
+### Format 1: Key-Value Logs
+```
+// Log: "event=login user=john status=success"
+| keyvalue infer "event", "user", "status"
+| count by event, status
+```
+
+### Format 2: JSON Logs
+```
+// Log: {"event": "login", "user": "john", "status": "success"}
+| json field=_raw "event" as event_name
+| json field=_raw "status" as status
+| count by event_name, status
+```
+
+### Format 3: Delimited Logs
+```
+// Log: "login|john|success|2024-01-01"
+| split _raw delim='|' extract 1 as event_name, 2 as user, 3 as status
+| count by event_name, status
+```
+
+### Format 4: Regex for Complex Patterns
+```
+// Log: "[EVENT:login] [USER:john] [STATUS:success]"
+| parse regex "\[EVENT:(?<event_name>[^\]]+)\].*\[STATUS:(?<status>[^\]]+)\]"
+| count by event_name, status
+```
+
+---
+
+## Performance Optimization Tips
+
+### ✅ DO: Filter Early
+```
+// GOOD - Filter reduces data before parsing
+_sourceCategory=application status=failed
+| parse "event=* error=*" as event_name, error
+| count by event_name, error
+```
+
+### ❌ DON'T: Parse Then Filter
+```
+// BAD - Parses all data, then filters
+_sourceCategory=application
+| parse "event=* status=* error=*" as event_name, status, error
+| where status = "failed"
+| count by event_name, error
+```
+
+### ✅ DO: Use Specific Wildcards
+```
+// GOOD - Precise parsing
+| parse "event=*," as event_name
+```
+
+### ❌ DON'T: Use Greedy Wildcards
+```
+// BAD - May capture too much
+| parse "event=*" as event_name
+```
+
+### ✅ DO: Aggregate Early When Possible
+```
+// GOOD - Count at source level
+| count by event_name, field_value
+| where _count > 100  // Filter aggregated results
+```
+
+---
+
+## Common Mistakes & Solutions
+
+### Mistake 1: Counting Wrong Thing
+```
+❌ WRONG:
+| count(event_name) by field_value
+// This counts non-null event_name values, not useful
+
+✅ CORRECT:
+| count by event_name, field_value
+// This counts occurrences of each combination
+```
+
+### Mistake 2: Missing Parse
+```
+❌ WRONG:
+| count by event_name
+// Won't work if event_name isn't already a field
+
+✅ CORRECT:
+| parse "event=*" as event_name
+| count by event_name
+```
+
+### Mistake 3: Not Handling Missing Fields
+```
+❌ WRONG:
+| parse "event=* status=*" as event_name, status
+// Drops logs without status field
+
+✅ CORRECT:
+| parse "event=* status=*" as event_name, status nodrop
+| if(isEmpty(status), "unknown", status) as status
+| count by event_name, status
+```
+
+---
+
+## Real-World Example: Complete Analysis
+
+**Business Question**: "Which events are failing most, and what are the top error codes?"
+
+```
+_sourceCategory=application
+// Step 1: Parse event and status
+| parse "event=* status=* error_code=*" as event_name, status, error_code nodrop
+
+// Step 2: Fill missing error codes
+| if(isEmpty(error_code), "N/A", error_code) as error_code
+
+// Step 3: Calculate failures per event
+| where status = "failed"
+| count by event_name, error_code
+
+// Step 4: Calculate total failures per event
+| total _count as total_failures by event_name
+
+// Step 5: Calculate percentage
+| (_count / total_failures) * 100 as error_percentage
+
+// Step 6: Format output
+| fields event_name, error_code, _count, error_percentage
+| sort by event_name, _count desc
+
+// Step 7: Get top 3 errors per event
+| topk(3, _count) by event_name
+```
+
+**Output**:
+```
+event_name | error_code | _count | error_percentage
+login      | 401        | 120    | 65.2%
+login      | 403        | 50     | 27.2%
+login      | 500        | 14     | 7.6%
+payment    | 500        | 85     | 57.4%
+payment    | 503        | 42     | 28.4%
+payment    | 422        | 21     | 14.2%
+```
+
+---
+
+## Memory Aid: The 3-Step Pattern
+
+**Step 1: EXTRACT** (Parse)
+```
+| parse "event=* field=*" as event_name, field_value
+```
+
+**Step 2: COUNT** (Aggregate)
+```
+| count by event_name, field_value
+```
+
+**Step 3: REFINE** (Transform)
+```
+| sort by _count desc
+| topk(10, _count)
+```
+
+---
+
+## Quick Reference Card
+
+```
+┌─────────────────────────────────────────────────────┐
+│ COUNTING FIELD OCCURRENCES BY EVENT - CHEAT SHEET  │
+├─────────────────────────────────────────────────────┤
+│ Basic Count:                                        │
+│   | count by event_name, field_value                │
+│                                                     │
+│ Unique Count:                                       │
+│   | count_distinct(field) by event_name             │
+│                                                     │
+│ Top N:                                              │
+│   | topk(5, _count) by event_name                   │
+│                                                     │
+│ With Time:                                          │
+│   | timeslice 1h                                    │
+│   | count by _timeslice, event_name, field          │
+│                                                     │
+│ With Percentage:                                    │
+│   | total _count as total by event_name             │
+│   | (_count/total)*100 as pct                       │
+└─────────────────────────────────────────────────────┘
+```
+
+**Your turn**: What specific log format are you working with? Share an example log line, and I'll write the exact query for your use case! 🎯
