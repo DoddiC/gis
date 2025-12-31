@@ -1,6 +1,899 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2580
-\cocoatextscaling0\cocoaplatform0{\fonttbl}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\margl1440\margr1440\vieww22140\viewh14900\viewkind0
-}
+# **SHERLOCK INGESTION DASHBOARD - COMPREHENSIVE QUERIES**
+
+Based on actual log analysis and Dashboard Cookbook patterns.
+
+---
+
+## **DASHBOARD VARIABLES**
+
+```
+Variable 1: environment
+- Default: *
+- Display Name: Environment
+- Values: *, Dev, QA, Prod
+
+Variable 2: flight_detail_id
+- Default: *
+- Display Name: Flight Detail ID
+
+Variable 3: equipment_id
+- Default: *
+- Display Name: Equipment ID
+
+Variable 4: asset_id
+- Default: *
+- Display Name: Asset ID
+```
+
+---
+
+# **STEP 5.1: EXTERNAL DATA FETCH**
+
+## **Panel 5.1.A: Geomart Data Fetch Status (Single Value with Color)**
+
+**Purpose:** Show total Geomart fetch attempts with success rate
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion* OR _sourceCategory=*Sumo-Scheduled-Tasks*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Filter for Geomart events
+| where event = "Ingest Structures"
+| where msg matches "*Geomart*" OR msg matches "*geomart*"
+
+// Count successes
+| where msg matches "*Geomart asset data fetch success*"
+| count
+```
+
+**Visualization:** Single Value
+- Color by range: 0-10 (red), 10-100 (yellow), >100 (green)
+- Add sparkline for trend
+
+---
+
+## **Panel 5.1.B: Geomart Fetch Over Time (Line Chart)**
+
+**Purpose:** Time series of Geomart data fetch attempts
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion* OR _sourceCategory=*Sumo-Scheduled-Tasks*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+// Filter for Geomart
+| where event = "Ingest Structures"
+| where msg matches "*Geomart*" OR msg matches "*geomart*"
+
+// Classify status
+| if(msg matches "*Geomart asset data fetch success*", "Success",
+  if(msg matches "*Error fetching data from Geomart*", "Error", 
+  "Attempt")) as status
+
+// Timeslice
+| timeslice 1h
+
+// Count by status
+| count by _timeslice, status
+
+// Transpose for multiple series
+| transpose row _timeslice column status
+
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart (multiple series)
+
+---
+
+## **Panel 5.1.C: Sherlock Workorder Fetch Status (Pie Chart)**
+
+**Purpose:** Success vs failure for Sherlock workorder calls
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion* OR _sourceCategory=*Sumo-Scheduled-Tasks*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// Filter for Sherlock workorders
+| where event = "Ingest Structures"
+| where msg matches "*sherlock*" OR msg matches "*Sherlock*"
+
+// Classify status
+| if(msg matches "*Response pulling workorders from sherlock*", "Success",
+  if(msg matches "*Attempt to pull workorders from sherlock*", "Attempt",
+  "Unknown")) as status
+
+// Only count final status
+| where status = "Success" OR status matches "*Error*" OR status matches "*[Ff]ail*"
+
+| count by status
+```
+
+**Visualization:** Pie Chart
+
+---
+
+## **Panel 5.1.D: Couchbase Workorder Fetch Status (Bar Chart)**
+
+**Purpose:** Show Couchbase workorder fetch attempts and success
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion* OR _sourceCategory=*Sumo-Scheduled-Tasks*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Filter for Couchbase
+| where event = "Ingest Structures"
+| where msg matches "*couchbase*" OR msg matches "*Couchbase*"
+
+// Classify status
+| if(msg matches "*Response pulling workorders from couchbase*", "Success",
+  if(msg matches "*Attempt to pull workorders from couchbase*", "Attempt",
+  if(msg matches "*Attempting to make post call to fetch workorders*", "Post_Attempt",
+  "Unknown"))) as status
+
+| count by status
+| sort by _count desc
+```
+
+**Visualization:** Bar Chart
+
+---
+
+## **Panel 5.1.E: All External Data Sources - Success/Failure Table**
+
+**Purpose:** Comprehensive view of all external data source calls
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion* OR _sourceCategory=*Sumo-Scheduled-Tasks*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+// Filter for external data sources
+| where event = "Ingest Structures"
+
+// Classify data source - using msg patterns
+| if(msg matches "*Geomart*" OR msg matches "*geomart*", "Geomart",
+  if(msg matches "*sherlock*" AND msg matches "*workorder*", "Sherlock_Workorder",
+  if(msg matches "*couchbase*" OR msg matches "*Couchbase*", "Couchbase",
+  "Other"))) as data_source
+
+// Only include recognized sources
+| where data_source != "Other"
+
+// Classify outcome
+| if(msg matches "*success*" OR state = "Success", "Success",
+  if(msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*" OR state = "Failure", "Error",
+  "Attempt")) as outcome
+
+// Count
+| count by data_source, outcome
+
+// Transpose for table
+| transpose row data_source column outcome
+
+| sort by data_source asc
+```
+
+**Visualization:** Table
+
+---
+
+## **Panel 5.1.F: External Data Errors Detail (Table)**
+
+**Purpose:** Show all errors from external data sources
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion* OR _sourceCategory=*Sumo-Scheduled-Tasks*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+// Filter for external data events
+| where event = "Ingest Structures"
+
+// Only errors
+| where state = "Failure" 
+    OR level >= 40
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+
+// Classify source
+| if(msg matches "*Geomart*", "Geomart",
+  if(msg matches "*sherlock*", "Sherlock",
+  if(msg matches "*couchbase*", "Couchbase",
+  "Unknown"))) as data_source
+
+| fields _messageTime, data_source, event, state, msg, flightDetailId, equipmentId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+# **STEP 5.2: IMAGE PROCESSING**
+
+## **Panel 5.2.A: Image Processing Overview (Single Value)**
+
+**Purpose:** Total images processed successfully
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Final success message for image processing
+| where event = "Image Processing"
+| where msg matches "*Completed batch image processing*"
+| where msg matches "*all images processed successfully*"
+
+| count
+```
+
+**Visualization:** Single Value with color
+
+---
+
+## **Panel 5.2.B: Image Processing Pipeline Stages (Bar Chart)**
+
+**Purpose:** Count events at each stage of image processing
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// Filter for image-related events
+| where event matches "*Image*" OR event matches "*image*"
+
+// Classify stage based on actual log patterns
+| if(msg matches "*Starting batch image processing*", "1_Batch_Start",
+  if(msg matches "*Attempting to process individual image*", "2_Individual_Process",
+  if(msg matches "*Attempting to download an image from*", "3_S3_Download_Attempt",
+  if(msg matches "*Successfully downloaded image metadata from S3*", "4_S3_Download_Success",
+  if(msg matches "*Extracting geojson from image EXIF*", "5_EXIF_Extract",
+  if(msg matches "*Extracted geojson from image EXIF metadata*", "6_EXIF_Success",
+  if(msg matches "*Attempting to create asset image record*", "7_Asset_Record_Attempt",
+  if(msg matches "*Successfully created asset image records*", "8_Asset_Records_Created",
+  if(msg matches "*Completed batch image processing*", "9_Batch_Complete",
+  "Other"))))))))) as stage
+
+| where stage != "Other"
+
+| count by stage
+| sort by stage asc
+```
+
+**Visualization:** Bar Chart
+
+---
+
+## **Panel 5.2.C: S3 Download Success Rate (Pie Chart)**
+
+**Purpose:** Show success/failure rate for S3 image downloads
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Filter for S3 download events
+| where event = "Process Individual Image" OR event = "Download S3 Image Metadata"
+
+// Only final status messages
+| where msg matches "*Successfully downloaded image metadata from S3*"
+    OR msg matches "*Download S3 Image Metadata succeeded*"
+    OR msg matches "*[Ee]rror*" AND msg matches "*S3*"
+    OR msg matches "*[Ff]ail*" AND msg matches "*S3*"
+
+// Classify
+| if(msg matches "*Success*" OR msg matches "*succeeded*", "Success", "Failure") as status
+
+| count by status
+```
+
+**Visualization:** Pie Chart
+
+---
+
+## **Panel 5.2.D: EXIF Metadata Extraction (Line Chart)**
+
+**Purpose:** Time series of EXIF extraction
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// EXIF events
+| where event = "Process Individual Image"
+| where msg matches "*EXIF*" OR msg matches "*exif*" OR msg matches "*geojson*"
+
+// Classify
+| if(msg matches "*Extracted geojson from image EXIF metadata*", "Success",
+  if(msg matches "*Extracting geojson*", "Attempt",
+  "Unknown")) as status
+
+| timeslice 1h
+| count by _timeslice, status
+
+| transpose row _timeslice column status
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart
+
+---
+
+## **Panel 5.2.E: Asset Image Record Creation (Area Chart)**
+
+**Purpose:** Track asset_image record creation over time
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Asset image creation events
+| where event = "Process Individual Image" OR event = "Create Images"
+
+// Classify
+| if(msg matches "*Successfully created asset image records*", "Created",
+  if(msg matches "*Skipping createAssetImageRecord*" AND msg matches "*duplicate detected*", "Duplicate_Skipped",
+  if(msg matches "*Attempting to create asset image record*", "Attempt",
+  "Other"))) as status
+
+| where status != "Other"
+
+| timeslice 1h
+| count by _timeslice, status
+
+| transpose row _timeslice column status
+| sort by _timeslice asc
+```
+
+**Visualization:** Area Chart (stacked)
+
+---
+
+## **Panel 5.2.F: Image Processing Errors (Table)**
+
+**Purpose:** Detailed view of all image processing errors
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+| json field=_raw "message.assetId" as assetId nodrop
+
+// Image-related events
+| where event matches "*Image*" OR event matches "*image*"
+
+// Errors only
+| where state = "Failure"
+    OR level >= 40
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+
+// Classify error type
+| if(msg matches "*S3*" OR msg matches "*s3*", "S3_Error",
+  if(msg matches "*EXIF*" OR msg matches "*exif*", "EXIF_Error",
+  if(msg matches "*asset*" AND msg matches "*record*", "Asset_Record_Error",
+  if(msg matches "*thumbnail*", "Thumbnail_Error",
+  "Other")))) as error_type
+
+| fields _messageTime, error_type, event, msg, flightDetailId, equipmentId, assetId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+## **Panel 5.2.G: Batch Image Processing Success Count (Single Value)**
+
+**Purpose:** Count of successful batch completions
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// Final success message
+| where event = "Image Processing"
+| where msg matches "*Completed batch image processing - all images processed successfully*"
+
+| count
+```
+
+**Visualization:** Single Value with color and sparkline
+
+---
+
+# **STEP 5.3: INSPECTION RECORD CREATION**
+
+## **Panel 5.3.A: Inspection Record Status (Pie Chart)**
+
+**Purpose:** Show inspection record creation success rate
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Inspection record events
+| where event = "Create Inspection Record" OR event = "Ingest Structures"
+
+// Filter for inspection-specific messages
+| where msg matches "*inspection*" OR msg matches "*Inspection*"
+
+// Classify
+| if(msg matches "*Successfully created inspection record*" OR msg matches "*Insert asset inspection record success*", "Success",
+  if(msg matches "*Attempting to create inspection record*" OR msg matches "*Insert asset inspection record*", "Attempt",
+  "Error")) as status
+
+// Only count final states
+| where status = "Success" OR status = "Error"
+
+| count by status
+```
+
+**Visualization:** Pie Chart
+
+---
+
+## **Panel 5.3.B: Inspection Records Over Time (Line Chart)**
+
+**Purpose:** Time series of inspection record creation
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Success messages only
+| where event = "Create Inspection Record" OR event = "Ingest Structures"
+| where msg matches "*Successfully created inspection record*" OR msg matches "*Insert asset inspection record success*"
+
+| timeslice 1h
+| count by _timeslice
+| sort by _timeslice asc
+```
+
+**Visualization:** Line Chart
+
+---
+
+## **Panel 5.3.C: Inspection Record Details (Table)**
+
+**Purpose:** Detailed view with asset and flight info
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+| json field=_raw "message.assetId" as assetId nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.InspectionToBeCreated.assetId" as inspectionAssetId nodrop
+| json field=_raw "message.InspectionToBeCreated.FlightDetailId" as inspectionFlightId nodrop
+
+// Inspection events
+| where event = "Create Inspection Record" OR event = "Ingest Structures"
+| where msg matches "*inspection*"
+
+// Classify status
+| if(msg matches "*Successfully created*" OR msg matches "*success*", "Success",
+  if(msg matches "*Attempt*", "Attempt",
+  "Error")) as status
+
+| fields _messageTime, status, equipmentId, assetId, flightDetailId, inspectionAssetId, inspectionFlightId, msg
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+## **Panel 5.3.D: Inspection Errors (Table)**
+
+**Purpose:** Show all inspection creation errors
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.assetId" as assetId nodrop
+
+// Inspection events
+| where event = "Create Inspection Record" OR event = "Ingest Structures"
+| where msg matches "*inspection*"
+
+// Errors only
+| where state = "Failure" OR level >= 40 OR msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"
+
+| fields _messageTime, event, state, level, msg, flightDetailId, assetId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+# **STEP 5.4: MAP IMAGE HANDLING**
+
+## **Panel 5.4.A: Map Image Status (Single Value)**
+
+**Purpose:** Count successful map image creations
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// Map image events
+| where event = "Create Map Images" OR event matches "*Map*"
+
+// Success only
+| where msg matches "*Successfully created map images*"
+
+| count
+```
+
+**Visualization:** Single Value
+
+---
+
+## **Panel 5.4.B: Map Image Processing (Bar Chart)**
+
+**Purpose:** Show attempts vs success vs warnings
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.level" as level nodrop
+
+// Map image events
+| where event = "Create Map Images" OR event = "Ingestion" AND msg matches "*map*"
+
+// Classify
+| if(msg matches "*Successfully created map images*", "Success",
+  if(msg matches "*Attempting to create map images*", "Attempt",
+  if(msg matches "*WARNING*" AND msg matches "*map thumbnail failed*", "Warning_Feature_Flag",
+  "Other"))) as status
+
+| where status != "Other"
+
+| count by status
+| sort by _count desc
+```
+
+**Visualization:** Bar Chart
+
+---
+
+## **Panel 5.4.C: Map Image Errors/Warnings (Table)**
+
+**Purpose:** Show map image issues including feature flag warnings
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+// Map-related events
+| where event matches "*Map*" OR msg matches "*map*" OR msg matches "*Map*"
+
+// Errors and warnings
+| where level >= 40 OR msg matches "*WARNING*" OR msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"
+
+| fields _messageTime, event, level, msg, flightDetailId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+# **STEP 5.5: BATCH SQS PROCESSING**
+
+## **Panel 5.5.A: SQS Batch Processing Overview (Single Value)**
+
+**Purpose:** Total successful batch completions
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// Final success message
+| where event = "Batch Image Processing" OR event = "Batch SQS Processing"
+| where msg matches "*Completed batch Lambda invocation*" OR msg matches "*All images successfully sent to Lambda*"
+
+| count
+```
+
+**Visualization:** Single Value
+
+---
+
+## **Panel 5.5.B: SQS Processing Stages (Bar Chart)**
+
+**Purpose:** Show each stage of SQS batch processing
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// SQS and batch events
+| where event matches "*Batch*" OR event matches "*SQS*" OR event matches "*Request*"
+
+// Classify stage
+| if(msg matches "*Starting batch Lambda invocation*", "1_Batch_Start",
+  if(msg matches "*Starting batch SQS message processing*", "2_SQS_Start",
+  if(msg matches "*Sending SQS message with*", "3_Sending_Message",
+  if(msg matches "*Attempting to send image processing request*", "4_Send_Attempt",
+  if(msg matches "*Processing * image*", "5_Processing",
+  if(msg matches "*Image processing request sent successfully*", "6_Request_Success",
+  if(msg matches "*Successfully sent * image*", "7_Send_Success",
+  if(msg matches "*Successfully sent SQS message*", "8_SQS_Success",
+  if(msg matches "*All images successfully sent to Lambda*", "9_All_Complete",
+  if(msg matches "*Completed batch Lambda invocation*", "10_Batch_Complete",
+  "Other")))))))))) as stage
+
+| where stage != "Other"
+
+| count by stage
+| sort by stage asc
+```
+
+**Visualization:** Bar Chart
+
+---
+
+## **Panel 5.5.C: Images Sent to Lambda Over Time (Area Chart)**
+
+**Purpose:** Track image batches sent to Lambda
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+
+// Events showing image counts
+| where event = "Send Image Processing Request" OR event = "Request Image Processing"
+
+// Extract image count from message
+| parse regex field=msg "(?<image_count>\d+)\s+image"
+
+// Convert to number
+| num(image_count)
+
+| timeslice 1h
+| sum(image_count) as total_images by _timeslice
+| sort by _timeslice asc
+```
+
+**Visualization:** Area Chart
+
+---
+
+## **Panel 5.5.D: SQS Batch Processing Success Rate (Pie Chart)**
+
+**Purpose:** Success vs failure for SQS batches
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// SQS events
+| where event matches "*Batch*" OR event matches "*SQS*"
+
+// Only final status
+| where msg matches "*All images successfully sent*" 
+    OR msg matches "*Completed batch Lambda invocation*"
+    OR msg matches "*Successfully sent SQS message*"
+    OR state = "Failure"
+    OR msg matches "*[Ee]rror*"
+    OR msg matches "*[Ff]ail*"
+
+// Classify
+| if(msg matches "*[Ss]uccess*" OR state = "Success", "Success", "Failure") as status
+
+| count by status
+```
+
+**Visualization:** Pie Chart
+
+---
+
+## **Panel 5.5.E: SQS Processing Errors (Table)**
+
+**Purpose:** Detailed view of SQS/batch processing errors
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+// Batch/SQS events
+| where event matches "*Batch*" OR event matches "*SQS*" OR event matches "*Request*"
+
+// Errors only
+| where state = "Failure" OR level >= 40 OR msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"
+
+| fields _messageTime, event, state, level, msg, flightDetailId
+| sort by _messageTime desc
+| limit 100
+```
+
+**Visualization:** Table
+
+---
+
+# **CROSS-STEP ANALYTICS**
+
+## **Panel X.1: Complete Ingestion Flow Success (Single Value)**
+
+**Purpose:** End-to-end success count (all steps completed)
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+
+// Only final success messages from last step
+| where event = "Batch Image Processing"
+| where msg matches "*Completed batch Lambda invocation for image processing*"
+
+| count
+```
+
+**Visualization:** Single Value with color
+
+---
+
+## **Panel X.2: Ingestion Success Rate by Flight ID (Table)**
+
+**Purpose:** Show which flights completed successfully
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+
+// All events
+| where flightDetailId != ""
+
+// Classify key stages
+| if(msg matches "*Geomart asset data fetch success*", "Geomart_Success",
+  if(msg matches "*Completed batch image processing*", "Image_Processing_Success",
+  if(msg matches "*Successfully created inspection record*", "Inspection_Success",
+  if(msg matches "*Completed batch Lambda invocation*", "Lambda_Success",
+  if(state = "Failure" OR msg matches "*[Ee]rror*", "Error",
+  "Other"))))) as stage
+
+| where stage != "Other"
+
+// Count stages per flight
+| count by flightDetailId, equipmentId, stage
+
+// Transpose
+| transpose row flightDetailId, equipmentId column stage
+
+| sort by flightDetailId desc
+| limit 50
+```
+
+**Visualization:** Table
+
+---
+
+## **Panel X.3: All Errors Across Pipeline (Table)**
+
+**Purpose:** Comprehensive error view across all steps
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+| json field=_raw "message.level" as level nodrop
+| json field=_raw "message.flightDetailId" as flightDetailId nodrop
+| json field=_raw "message.equipmentId" as equipmentId nodrop
+| json field=_raw "message.assetId" as assetId nodrop
+
+// All errors
+| where state = "Failure" OR level >= 40 OR msg matches "*[Ee]rror*" OR msg matches "*[Ff]ail*"
+
+// Classify step
+| if(event = "Ingest Structures" AND msg matches "*Geomart*", "5.1_Geomart",
+  if(event = "Ingest Structures" AND (msg matches "*sherlock*" OR msg matches "*couchbase*"), "5.1_Workorders",
+  if(event matches "*Image*" AND !(event matches "*Batch*"), "5.2_Image_Processing",
+  if(event = "Create Inspection Record", "5.3_Inspection",
+  if(event matches "*Map*", "5.4_Map_Images",
+  if(event matches "*Batch*" OR event matches "*SQS*", "5.5_SQS_Batch",
+  "Unknown")))))) as pipeline_step
+
+| fields _messageTime, pipeline_step, event, state, level, msg, flightDetailId, equipmentId, assetId
+| sort by _messageTime desc
+| limit 200
+```
+
+**Visualization:** Table
+
+---
+
+## **Panel X.4: Pipeline Health Over Time (Stacked Area)**
+
+**Purpose:** See success/failure trends across all stages
+
+```sumo
+_sourceCategory=*Sherlock*Ingestion*
+| json field=_raw "message.event" as event nodrop
+| json field=_raw "message.msg" as msg nodrop
+| json field=_raw "message.state" as state nodrop
+
+// Key success messages from each stage
+| where msg matches "*Geomart asset data fetch success*"
+    OR msg matches "*Response pulling workorders*"
+    OR msg matches "*Successfully created asset image records*"
+    OR msg matches "*Successfully created inspection record*"
+    OR msg matches "*Successfully created map images*"
+    OR msg matches "*All images successfully sent to Lambda*"
+    OR state = "Failure"
+    OR msg matches "*[Ee]rror*"
+
+// Classify
+| if(state = "Success" OR msg matches "*[Ss]uccess*", "Success", "Failure") as status
+
+| timeslice 1h
+| count by _timeslice, status
+
+| transpose row _
