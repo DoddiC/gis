@@ -26,6 +26,8 @@ look at work type code (based on fda), in the job owner excel (533)
 
 doctype-roadhazard CRUD
 
+ca lambda is cap
+
 *R*
 
 *A*
