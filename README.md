@@ -30,6 +30,9 @@ ca lambda is cap
 
 a tag, 24 h to fix problem
 
+First comes from sync gateway, revision 2, channelizing it to ec-create-backendstate-new
+When it reaches gateway, this polling service receives a response from SGW,
+
 *R*
 
 *A*
