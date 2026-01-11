@@ -32,6 +32,12 @@ ca lambda is cap
 
 *A*
 
+inspect -> gas pieplines, some inspected annually, some frwuently, field inspectors; eletric transmission lines, distribution lines, sap is source of truth, work management will take up these work from SAP, work management uses construct app to submit the work, engage to assign work orders
+
+initially, supervisor uses
+
+before sap, uses couchbase for offline storage, saved locally (couchbase lite), then couchbase sync gateway
+
 *C*
 
 put everything you know about this together, document the flow of it, something solidified to present, work off that, if you dont have anything, you need to put the "crust" together, 
