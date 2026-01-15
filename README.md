@@ -14,11 +14,9 @@
 
 *_*
 
+https://www.sumologic.com/help/docs/get-started/account-settings-preferences/
+
 https://www.skills.google/
-
-16th jira on all Sherlock question same flightdetailID 2 events, trying to go by event for attempts for the ingestion trigger one code in notes, caps, 
-
-Apc ones that needs to be in backendstate new screenshot the steps from the wiki for it because recording wasn’t captured
 
 **Notes**
 
