@@ -58,6 +58,8 @@ inspection status update status - final log; Track this ID across multiple event
 
 Infra warning tab, groups to on call coverage, then sort out lambda wikis; shared links, Each dashboard Put excel on right side panel top and then reporting folder next to it
 
+maintenance activities - SAP gateway (affects mytime), PR1, ECC
+
 *_*
 
 ben nu wah (benoit)
