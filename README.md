@@ -58,7 +58,11 @@ inspection status update status - final log; Track this ID across multiple event
 
 Infra warning tab, groups to on call coverage, then sort out lambda wikis; shared links, Each dashboard Put excel on right side panel top and then reporting folder next to it
 
-maintenance activities - SAP gateway (affects mytime), PR1, ECC
+maintenance activities - SAP gateway (affects mytime), PR1, ECC; 
+
+- turn off pollers: users doing stuff in app, replicate to cb (now in mrad platform, pollers subscribing to sgw _changes feed and processing the docs, poller - subcribing to changes on which are new/updated and sends to sqs queue. once in queue, sqs router is listening to these queues, to recieve and process messages, then sending stuff to sap. poller is one of the pipes and flow controls/valves, behind poller is sqs router, 
+
+- if we turn off sqs router, poller is going to stack up in queue, but the queue has a dead letter, some kind of limit, so we don't want to overload the queue
 
 *_*
 
