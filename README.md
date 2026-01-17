@@ -52,6 +52,8 @@ offer features such as data integration, customizable dashboards, and trend anal
 
 inspection status update status - final log; Track this ID across multiple events/steps, See which step failed in the flow, Pinpoint exact failure location
 
+flights Attempted, 
+
 *O*
 
 7 nodes in each AZ, 21 total; multi az, dr ha test
