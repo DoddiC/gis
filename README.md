@@ -76,6 +76,8 @@ ben nu wah (benoit)
 
 not following best practices, inconsistencies, we can possibly make it intuitive, 
 
+not getting request, see where request is getting dropped
+
 decipher the syntax, write logic to parse the messages and extract the data we need
 
 put everything you know about this together, document the flow of it, something solidified to present, work off that, if you dont have anything, you need to put the "crust" together, 
