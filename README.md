@@ -76,7 +76,7 @@ ben nu wah (benoit)
 
 not following best practices, inconsistencies, we can possibly make it intuitive, 
 
-not getting request, see where request is getting dropped
+not getting request, see where request is getting dropped; mulesoft and sap, denoise
 
 decipher the syntax, write logic to parse the messages and extract the data we need
 
