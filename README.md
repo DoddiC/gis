@@ -3,9 +3,7 @@
 *D*
 
 *C*
-https://cloudsecurityalliance.org/research/publications?term=artificial-intelligence&locale=en
 
-https://github.com/topics/awesome-ai
 *R*
 
 *A*
