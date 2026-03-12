@@ -16,7 +16,7 @@
 
 https://www.sumologic.com/help/docs/get-started/account-settings-preferences/
 
-https://www.skills.google/
+https://github.gatech.edu/cs-6150-computing-for-good/paladin/pull/82
 
 **Notes**
 
